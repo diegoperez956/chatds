@@ -5,9 +5,9 @@ export BLOCKSDS ?= $(WONDERFUL_TOOLCHAIN)/thirdparty/blocksds/core
 PREFIX ?= $(WONDERFUL_TOOLCHAIN)/toolchain/gcc-arm-none-eabi/bin/arm-none-eabi-
 BUILD := build
 CORE := ../src/format.c ../src/kernels.c ../src/engine.c
-PLUMBING := $(addprefix ../plumbing/,calc.c generate.c io.c kb.c retrieve.c kb4.c retrieve4.c entres_index.c prestep.c textops.c)
+PLUMBING := $(addprefix ../plumbing/,calc.c generate.c io.c kb.c retrieve.c kb4.c retrieve4.c entres_index.c prestep.c textops.c router.c round3.c)
 UI := $(wildcard ../ui/src/*.c) ../ui/adapter/ui_engine_gen.c ../ui/shell/ui_script.c
-SOURCES := main.c dispatch.c rules.c ../../ds/tokenizer/tok.c $(CORE) $(PLUMBING) $(UI)
+SOURCES := main.c dispatch.c rules.c learned.c ../../ds/tokenizer/tok.c $(CORE) $(PLUMBING) $(UI)
 HEADERS := $(wildcard *.h ../include/*.h ../src/*.h ../plumbing/*.h ../ui/include/*.h ../ui/src/*.h ../../ds/tokenizer/*.h)
 COMMON := -std=c99 -O3 -g -Wall -Wextra -Werror -fstack-usage \
  -I../include -I../src -I../plumbing -I../ui/include -I../../ds/tokenizer
@@ -27,9 +27,13 @@ $(BUILD)/host/$(notdir $(1:.c=.o)): $(1) $(HEADERS) Makefile
 	$(CC) $(COMMON) -c $$< -o $$@
 $(BUILD)/nds/$(notdir $(1:.c=.o)): $(1) $(HEADERS) Makefile
 	@mkdir -p $(BUILD)/nds
-	$(PREFIX)gcc $(COMMON) $(ARM) -c $$< -o $$@
+	$(PREFIX)gcc $(COMMON) $(ARM) $$(MODULE_FLAGS) -c $$< -o $$@
 endef
 $(foreach src,$(SOURCES),$(eval $(call COMPILE,$(src))))
+# Size tuning is restricted to fallback integration/execution modules. Engine,
+# retrieval, existing rule/prestep arithmetic, and UI keep their shipped flags.
+SIZE_MODULES := dispatch learned router round3 textops
+$(addprefix $(BUILD)/nds/,$(addsuffix .o,$(SIZE_MODULES))): MODULE_FLAGS := -Os -mthumb
 $(BUILD)/chatds-host: $(HOST_OBJS) | $(BUILD)
 	$(CC) $^ -Wl,-Map,$(BUILD)/chatds-host.map -lm -o $@
 $(BUILD)/chatds.elf: $(ARM_OBJS) | $(BUILD)

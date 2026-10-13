@@ -16,6 +16,8 @@ planning and streaming, and card I/O. A C port of `corpus/chatds_runtime.py` and
 | `io.c` | `run.txt`, file preflight, atomic `out.txt`/`ids.txt`/`ctx.txt`/`calc.txt`/`heap.txt` (status last) |
 | `textops.c` | deterministic text operations (uppercase, reverse, counts, ...), twin of `campaign/pipeline/textops.py` |
 | `prestep.c` | c14 pre-routing steps, twin of `campaign/pipeline/prestep.py`: style wrappers ("answer in all caps: X"), deterministic calc() parser, textops negative guard, 420-byte dialogue state record (`cds_dlg`); `make build/test-prestep`, parity in `campaign/pipeline/test_prestep.py` |
+| `router.c` | int8 hashed word+char n-gram classifier over CDSR sidecars (no floats, no heap) |
+| `round3.c` | c24 learned fallbacks: conversation act and text op + literal-span tagger, twin of `campaign/router/round3.py`; parity and ASan/UBSan fuzz in `campaign/router/test_round3.py` |
 
 ## Test
 

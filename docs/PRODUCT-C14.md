@@ -1,8 +1,9 @@
 # product condition 14 (c14)
 
 c14 is the assistant-mode product. **hardware-tested: ran on a real Nintendo DS
-via a DSpico flashcart (2026-10-13).** the ROM built from this tree is
-byte-identical to that card's `chatds.nds`.
+via a DSpico flashcart (2026-10-13).** the ROM built from the c14 release commit is
+byte-identical to that card's `chatds.nds`. the current product is
+[c24](PRODUCT-C24.md), c14 plus two learned fallbacks.
 
 ## what it does
 

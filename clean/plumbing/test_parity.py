@@ -149,7 +149,7 @@ def test_arm9_builds_with_small_static_frames():
     subprocess.run(["make", "-s", "-C", HERE, "arm"], check=True)
     frames = [l.split("\t") for f in glob.glob(os.path.join(HERE, "build", "arm", "*.su")) for l in open(f)]
     assert frames and all(kind == "static\n" for _, _, kind in frames)
-    # cds_textops_tokens has no ARM9 caller; it ships only so the ROM stays byte-identical
-    # to the hardware-tested c14 build (see textops.h).
+    # cds_textops_tokens (~2.9 KiB) runs only in the c24 round3 fallback; the product
+    # stack gate (docs/PRODUCT-C24.md) measures it instead of this 1 KiB cap.
     worst = max(int(size) for fn, size, _ in frames if not fn.endswith(":cds_textops_tokens"))
     assert worst <= 1024, worst  # DTCM stack is ~16 KiB total; calc recursion is capped at depth 8

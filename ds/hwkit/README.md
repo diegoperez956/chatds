@@ -18,6 +18,13 @@ input, without retrieval or calculator handling. defaults: assistant, 64 new
 tokens; story, 200 new tokens. `--steps` accepts 1..256.
 `--kb4` stages ranked KB4 instead of KB3 (`--kb`). either index needs
 `--kb-attribution`; `corpus/kb/build_kb4.py` writes `ATTRIBUTION.txt` beside `kb4.bin`.
+Assistant kits also stage the three pinned round3 CDSR heads from
+`campaign/router/models/`. Missing/corrupt heads fail closed, not back to c14.
+Story kits do not need them. Fallbacks borrow 49,448 bytes of idle main-RAM KV
+values; insufficient workspace fails startup. Generator reset clears those bytes
+before every prefill. Context and KV precision are unchanged; no additional
+primary model/scratch heap allocation. The host product reads the heads from the
+model's directory, or from `CHATDS_ROUND3_DIR` (trailing slash) when set.
 KB4 takes precedence on the card. Only an absent `kb4.bin` permits KB3 fallback;
 a corrupt or unreadable KB4 fails closed. The prompt is one ASCII
 line, at most 127 bytes. the keyboard edits ASCII only.
@@ -30,18 +37,20 @@ legacy fixtures.
 
 ## testing
 
-C14 release validation used a private validation harness that is not shipped here;
-results are in [PRODUCT-C14](../../docs/PRODUCT-C14.md). Its funnel uses private
+C14 and C24 release validation used a private validation harness that is not shipped
+here; results are in [PRODUCT-C14](../../docs/PRODUCT-C14.md) and
+[PRODUCT-C24](../../docs/PRODUCT-C24.md). Its funnel uses private
 FAT images, config, home/cache and ROM copies. It verifies denied X11/Wayland sockets before launching Qt offscreen, denies GPU
 access, and compares generated IDs, stop, context, text, calculator output and
 path against the clean host product. It screens 60 fixed dev cases, including
-multi-turn sessions. Its memory run additionally checks cancellation/reset, budget
+multi-turn sessions; for c24 it also compares learned head IDs/margins and keeps
+every dev learned-text capture plus learned acts from both splits. Its memory run additionally checks cancellation/reset, budget
 stops, maximum editor length, stack paint and the conservative allocator gate.
 Both need a KB4 kit and 64-token assistant settings.
 
 The older `smoke-test.sh` and `test-publication.sh` enforce a transformer-only
-result schema (nonzero prompt tokens); they are not C14 validators because
-C14 deterministic paths correctly use zero tokens and `stop=none`.
+result schema (nonzero prompt tokens); they are not C14/C24 validators because
+C14/C24 deterministic paths correctly use zero tokens and `stop=none`.
 
 `test-publication.sh` uses one token to check the save path. it accepts an optional
 second argument naming a ROM override. `tools/benchmark_product.py` separately
@@ -71,6 +80,9 @@ chatds.nds
 chatds/model.bin
 chatds/tok.bin
 chatds/kb4.bin                # optional; preferred
+chatds/round3-act.cdsr        # required for assistant mode
+chatds/round3-op.cdsr         # required for assistant mode
+chatds/round3-tag.cdsr        # required for assistant mode
 chatds/kb.bin                 # optional legacy fallback when KB4 is absent
 chatds/kb-ATTRIBUTION.txt      # staged with any index; keep it when redistributing
 chatds/run.txt
@@ -81,8 +93,11 @@ THIRD_PARTY_NOTICES.md
 boot `chatds.nds`. **Send**, return, or **START** submits. **Bksp** deletes.
 **Stop** or **B** cancels between engine steps. **Up/Down** scroll the log;
 **About/SELECT** opens the credits. Each transformer question resets KV.
-Assistant mode runs condition 14: style/dialogue prestep, rules, guarded textops,
-calculator, ranked KB4/direct fields/templates, then transformer fallback.
+Assistant mode runs condition 24: c14 style/rules/dialogue get first refusal,
+then eligible learned conversation acts; guarded regex textops and calculator
+precede learned op/literal-span execution; ranked KB4/direct fields/templates
+and transformer fallthrough remain c14. Act/op/tag Q8 thresholds: 1793/386/0.
+Learned spans only index original user bytes, never state-substituted queries.
 A bounded 420-byte dialogue record persists across questions, separate from KV
 and visible history. Repeat replays the capped last answer; pushback rechecks its
 source. Pending clarification/candidates live one turn. Calc/text/code topic
@@ -90,7 +105,8 @@ changes clear entity state. Startup, errors, publication failure, Stop/B, and
 "never mind"/"start over" reset dialogue. "Normal case" clears only style; a
 session style request expires after eight styled answers. Path tags go only to
 `chatds/debug.log`, never the UI. `kbd=0` runs once for unattended tests.
-See [PRODUCT-C14](../../docs/PRODUCT-C14.md) for parity and memory gates.
+See [PRODUCT-C24](../../docs/PRODUCT-C24.md) for parity, learned fallback
+screening and the unchanged >=64 KiB allocator-margin gate.
 
 Results are `chatds/{out,ids,ctx,calc,heap}.txt`, plus append-only `debug.log`.
 Optional test-only `session.txt` accepts R (reset), S (bounded permitted state),

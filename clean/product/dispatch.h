@@ -6,7 +6,8 @@
 #include "prestep.h"
 #include "rules.h"
 /* Owns session dialogue, not model KV (KV resets per transformer question).
- * Fixed buffers; calls serialized. No malloc after initialization. */
+ * Fixed buffers; calls serialized. No owned heap requests after initialization;
+ * c24 card-head views borrow idle main-RAM KV values until generator reset. */
 typedef struct { char title[64], def[112]; } c14_identity;
 typedef struct {
     chatds_ui_engine_gen *g;
@@ -18,6 +19,8 @@ typedef struct {
     char path[40], template_name[32];
     c14_decision dec;
     int style, state_row, keep, no_style, deterministic, finalized;
+    int learned_act, learned_text;
+    int32_t act_margin, op_margin, tag_margin;
     size_t shown;
 } c14_runtime;
 int c14_open(c14_runtime *r, chatds_ui_engine_gen *g, const char *kb4_path);
