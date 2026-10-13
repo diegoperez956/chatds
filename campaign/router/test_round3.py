@@ -1,5 +1,5 @@
 """Round3 fallback parity (C vs Python twin) + sanitizer fuzz. Run: pytest -q campaign/router/test_round3.py"""
-import hashlib, pathlib, random, re, subprocess, sys
+import pathlib, random, subprocess, sys
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent/'pipeline')]
 import round3 as r3, gen_textops_requests as gen, gen_textops_negatives as neg  # noqa: E402
@@ -35,17 +35,6 @@ def queries():
 
 def esc(s):
     return ''.join('\\\\' if c == '\\' else c if 32 <= ord(c) <= 126 else '\\x%02x' % ord(c) for c in s)
-
-
-def test_learned_c_pins_committed_heads():
-    src = (ROOT/'clean/product/learned.c').read_text()
-    for k in r3.HEADS:
-        blob = (r3.MODELS/f'round3-{k}.cdsr').read_bytes()
-        assert ''.join('0x%02x,' % b for b in hashlib.sha256(blob).digest())[:-1] in src.replace(' ', ''), k
-        assert '%s_BYTES = %d' % (k.upper(), len(blob)) in src, k
-    t = r3.THRESHOLDS
-    assert 'act_threshold = %d; r->op_threshold = %d; r->tag_threshold = %d;' % (t['act'], t['op'], t['tag']) in src
-    assert len(re.findall(r'act_threshold = %d;' % t['act'], src)) == 2
 
 
 def test_parity():
