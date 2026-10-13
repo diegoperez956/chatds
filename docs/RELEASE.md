@@ -20,18 +20,18 @@ Review
 - boot the exact clean kit on physical DS lite + DSpico, including stack canary;
 - obtain explicit publication approval. A local kit is not a public release.
 
-## c14 validation flow
+## c24 validation flow
 
-The c14 release gate is the flow recorded in
-[PRODUCT-C14.md](PRODUCT-C14.md#validation-2026-10-13-this-tree). All of it
+The c24 release gate is the flow recorded in
+[PRODUCT-C24.md](PRODUCT-C24.md#validation-2026-10-13-this-tree). All of it
 must pass on the exact tree being released:
 
-1. host tests: `python3 tools/run_host_tests.py` (prestep, textops and KB4
-   C-vs-Python parity, sanitizer fuzz).
+1. host tests: `python3 tools/run_host_tests.py` (prestep, textops, KB4 and
+   round3 C-vs-Python parity, sanitizer fuzz, learned-head fail-closed checks).
 2. golden parity: the 33 frozen golden inputs (frozen KB2, see
-   [ENGINE-GOLDEN.md](ENGINE-GOLDEN.md)), c14 ROM in headless melonDS vs c14
+   [ENGINE-GOLDEN.md](ENGINE-GOLDEN.md)), c24 ROM in headless melonDS vs c24
    host product, 33/33 identical `out`/`ids`/`ctx`.
-3. dev-set parity: host product vs the c14 reference pipeline on every dev
+3. dev-set parity: host product vs the c24 reference pipeline on every dev
    turn, 0 answer and 0 metadata mismatches.
 4. headless melonDS screen: ROM vs host on stratified dev cases, 0 mismatches,
    with display sockets denied (Qt offscreen, no GPU).
@@ -50,16 +50,16 @@ sha256sum build/release-kit/chatds.nds
 ```
 
 The ROM sha256 must match the `chatds.nds` row in
-[PRODUCT-C14.md](PRODUCT-C14.md#hardware-build-and-provenance); check the
+[PRODUCT-C24.md](PRODUCT-C24.md#build-and-provenance); check the
 staged assets against the same table.
 
 The dev-set parity, melonDS screen and RAM runs use a private validation
-harness and eval sets that are not shipped here, as PRODUCT-C14.md says.
+harness and eval sets that are not shipped here, as PRODUCT-C24.md says.
 
 `ds/hwkit/smoke-test.sh` and `ds/hwkit/test-publication.sh` are legacy
-transformer-only checks. They expect nonzero prompt tokens, which c14
+transformer-only checks. They expect nonzero prompt tokens, which c14/c24
 deterministic paths do not produce, and they only look for `chatds/kb.bin`, so
-they are not used for c14.
+they are not used for c14 or c24.
 
 All emulator gates are isolated/offscreen. The default ROM is `chatds.nds`,
 with only the independent engine, tokenizer, plumbing and UI. Its data
@@ -67,7 +67,7 @@ directory is `chatds/`. No unsupported older ROM can be relabeled as the clean
 product.
 
 Use [ENGINE-BENCHMARK.md](ENGINE-BENCHMARK.md) for timing boundaries and identities.
-The c14 kit uses KB4 (hash in PRODUCT-C14.md). The older demo uses release KB3 (`f0326927caf6d8e508aa19e3efe65a3f615c53295c24841a8bf4125eb22faefc`);
+The c24 kit uses the c14 KB4 (hash in PRODUCT-C14.md). The older demo uses release KB3 (`f0326927caf6d8e508aa19e3efe65a3f615c53295c24841a8bf4125eb22faefc`);
 compatibility uses frozen KB2 (`4eff3ac8d99a738cc0789809764e7f5b197e2eee4ed7f7628bd3a3ec9e803203`).
 Do not substitute one while retaining the other's claims.
 
