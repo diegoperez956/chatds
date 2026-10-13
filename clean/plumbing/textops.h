@@ -20,9 +20,8 @@ enum {
 int cds_textops(const char *question, char *out, size_t cap, int *op);
 const char *cds_textops_name(int op);
 
-/* Round 3 learned-span seam. Offsets index the ORIGINAL request, never normalized.
- * No product caller: kept so the ROM stays byte-identical to the hardware-tested c14 build.
- * cds_textops_tokens has a ~2.9 KiB frame; do not call it on the ARM9 without moving its buffer to static. */
+/* Round 3 learned-span seam, called by round3.c. Offsets index the ORIGINAL request, never normalized.
+ * cds_textops_tokens has a ~2.9 KiB frame; the c24 ARM9 stack gate covers it. */
 typedef struct {
     unsigned short s, e;
     unsigned char q;

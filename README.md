@@ -5,9 +5,12 @@ type on the touchscreen; the 67 MHz ARM9 looks up facts on the SD card,
 evaluates `calc(...)` calls and writes short python or shell snippets.
 the current model has 2.75 million parameters. it gets things wrong a lot.
 
-the current product is c14: rules, a calculator parser, text operations and
-ranked KB4 fact lookup answer first; the model only fills the gaps. it has run
-on a real DS through a DSpico flashcart. [details, hashes and gates](docs/PRODUCT-C14.md).
+the current product is c24: rules, a calculator parser, text operations and
+ranked KB4 fact lookup answer first, two small learned fallbacks catch
+conversation and text requests the rules miss, and the model only fills the
+gaps. c24 is emulator-tested only; the previous build, c14, ran on a real DS
+through a DSpico flashcart. [c24 details, scores and gates](docs/PRODUCT-C24.md),
+[c14](docs/PRODUCT-C14.md).
 
 ![chatds answering a capital question and calculating 38 times 47](docs/demo.gif)
 

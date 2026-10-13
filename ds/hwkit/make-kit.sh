@@ -58,12 +58,17 @@ cp "$ROOT/clean/product/build/chatds.nds" "$STAGE/chatds.nds"
 cp "$MODEL" "$STAGE/chatds/model.bin"
 cp "$TOK" "$STAGE/chatds/tok.bin"
 [[ -z "$KB" ]] || cp "$KB" "$STAGE/chatds/$KB_NAME"
+if ((INSTRUCT)); then
+    for head in act op tag; do
+        cp "$ROOT/campaign/router/models/round3-$head.cdsr" "$STAGE/chatds/"
+    done
+fi
 [[ -z "$KB_ATTRIBUTION" ]] || cp "$KB_ATTRIBUTION" "$STAGE/chatds/kb-ATTRIBUTION.txt"
 cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$STAGE/THIRD_PARTY_NOTICES.md"
 printf 'steps=%s\nkbd=1\ninstruct=%s\nprompt=%s\n' "$STEPS" "$INSTRUCT" "$PROMPT" > "$STAGE/chatds/run.txt"
 # Clean host/device smoke expectation, distinct from the frozen legacy goldens.
-"$ROOT/clean/product/build/chatds-host" "$MODEL" "$TOK" "${KB:--}" \
+CHATDS_ROUND3_DIR="$STAGE/chatds/" "$ROOT/clean/product/build/chatds-host" "$MODEL" "$TOK" "${KB:--}" \
     "$STAGE/chatds/run.txt" "$STAGE/.host/"
 cp "$STAGE/.host/ids.txt" "$STAGE/.host-golden.ids"
 cp "$STAGE/.host/out.txt" "$STAGE/.host-golden.txt"

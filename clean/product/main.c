@@ -16,6 +16,7 @@
 #include "chatds_ui_engine.h"
 #include "chatds_ui_demo.h" /* Scripted input only; the demo generator is not linked. */
 #include "dispatch.h"
+#include "learned.h"
 
 static chatds_model *model;
 static chatds_session *session;
@@ -361,7 +362,7 @@ static void interactive(void) {
 
 int main(int argc, char **argv) {
     const char *model_path, *tok_path, *kb_path, *run_path;
-    char kb4_path[256];
+    char kb4_path[256], learned_directory[256];
     int rc = 1, serve = 0;
 #ifdef ARM9
     (void)argc; (void)argv;
@@ -428,6 +429,18 @@ int main(int argc, char **argv) {
     tok = (cds_tokenizer){encode, piece, &tokenizer};
     chatds_ui_engine_gen_init(&generator, session, &tok, kb.f ? &kb : NULL,
                              config.instruct, prompt_ids, shape->context_length, config.steps);
+#ifdef ARM9
+    strcpy(learned_directory, "fat:/chatds/");
+#else
+    const char *learned_env = getenv("CHATDS_ROUND3_DIR");
+    const char *model_slash = strrchr(model_path, '/');
+    if (learned_env) snprintf(learned_directory, sizeof learned_directory, "%s", learned_env);
+    else if (model_slash) snprintf(learned_directory, sizeof learned_directory, "%.*s/", (int)(model_slash - model_path), model_path);
+    else strcpy(learned_directory, "./");
+#endif
+    if (config.instruct && c24_models_init(session, learned_directory)) {
+        fprintf(stderr, "invalid round3 models or insufficient fallback workspace\n"); goto fail;
+    }
     stream_piece = generator.opts.on_piece;
     generator.opts.on_piece = observed_piece;
     generator.opts.out_ids = output_ids;

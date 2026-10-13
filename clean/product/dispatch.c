@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: MIT
- * Product condition 14. Ordering follows host_pipeline.Pipeline, not learned router.c.
+ * Product condition 24. c14 primary ordering with round3 fallbacks only.
  * Rendering waits for decode completion, so wrappers/repeat never expose uncased raw tokens.
  */
 #include <stdio.h>
 #include <string.h>
 #include "dispatch.h"
 #include "textops.h"
+#include "learned.h"
 static const char *const acts[] = {"", "hello.", "you're welcome.", "goodbye.", "i'm doing well, thanks.", "ok.",
     "i'm chatds, a small model on a nintendo ds lite.", "i can help with facts, math, python, shell and text."};
 static const char noans[] = "i haven't said anything yet. what do you want to ask?";
@@ -126,6 +127,7 @@ static __attribute__((noinline)) void pushback(c14_runtime *r) {
 static int dialogue(c14_runtime *r) {
     cds_dlg *d = &r->dlg; int dk = cds_dlg_kind(r->q);
     if (!dk && r->dec.act == A_REPEAT) dk = CDS_DK_REPEAT;
+    if (!dk && r->dec.act == A_PUSHBACK) dk = CDS_DK_PUSHBACK;
     uint32_t cand[2] = {d->cand[0], d->cand[1]}; int nc = d->ncand, pend = d->pend; char term[24]; copy(term, sizeof term, d->term);
     d->pend = d->ncand = 0; d->term[0] = 0; d->cand[0] = d->cand[1] = 0;
     if (dk == CDS_DK_REPEAT || dk == CDS_DK_PUSHBACK) {
@@ -154,6 +156,9 @@ static int dialogue(c14_runtime *r) {
 static int template(c14_runtime *r, int h, int act) {
     const char *text = NULL, *kind = NULL, *term = NULL; char tmp[256], termcopy[24];
     if (h == H_CONVERSATION && act >= A_GREETING && act <= A_CAPABILITIES) { text = acts[act]; kind = "act"; }
+    else if (h == H_CONVERSATION && (act == A_COMPLIMENT || act == A_INSULT)) {
+        text = act == A_COMPLIMENT ? "thanks." : "sorry. how can i help?"; kind = "act";
+    } else if (h == H_CONVERSATION) { text = clarify; kind = "clarify"; }
     else if (h == H_CLARIFY) {
         term = c14_ambig(r->q); char plain[128]; c14_plain(r->q, plain);
         if (c14_has(plain, "python")) { term = "python"; text = "do you mean the language or the snake?"; kind = "clarify_python"; }
@@ -171,15 +176,46 @@ static int template(c14_runtime *r, int h, int act) {
     if (!strcmp(kind, "clarify_candidates")) { r->dlg.cand[0] = r->evidence.recoff; r->dlg.cand[1] = r->evidence.alt_recoff[0]; r->dlg.ncand = 2; }
     return 0;
 }
+static __attribute__((noinline)) int act_allowed(c14_runtime *r) {
+    char expr[CDS_PS_EXPR_CAP];
+    int h = r->dec.handler;
+    if (strcmp(r->effective, r->q) || cds_dlg_kind(r->q) || r->dec.act ||
+        (h >= H_PYTHON && h <= H_CONVERSATION) ||
+        (h == H_FACTS && c24_primary_fact(r->q)) || c14_ambig(r->q) || cds_textops_guard(r->q)) return 0;
+    int text = cds_textops(r->q, r->g->opts.text, r->g->opts.text_cap, NULL);
+    r->g->opts.text[0] = 0;
+    return !text && !cds_calc_parse(r->q, expr, sizeof expr);
+}
+static const int learned_acts[] = {A_NONE, A_GREETING, A_THANKS, A_BYE, A_IDENTITY,
+    A_CAPABILITIES, A_HOW_ARE_YOU, A_COMPLIMENT, A_INSULT, A_REPEAT, A_PUSHBACK};
 static int core(c14_runtime *r) {
     r->dec = c14_rules(r->q); int h = r->dec.handler;
     int dr = dialogue(r); if (dr) return dr < 0 ? -1 : 0;
+    if (act_allowed(r)) {
+        int act = c24_act(r->g->session, r->q, &r->act_margin);
+        if (act < 0) return -1;
+        if (act) {
+            r->learned_act = act; r->dec = (c14_decision){H_CONVERSATION, learned_acts[act]}; h = H_CONVERSATION;
+            if (act == R3_REPEAT || act == R3_PUSHBACK) {
+                dr = dialogue(r); if (dr) return dr < 0 ? -1 : 0;
+            }
+        }
+    }
     if (cds_textops_guarded(r->effective, r->g->opts.text, r->g->opts.text_cap, NULL)) {
         r->deterministic = 1; copy(r->path, sizeof r->path, "text_exact"); return 0;
     }
     if (cds_calc_answer(r->effective, r->g->opts.text, r->g->opts.text_cap)) {
         r->deterministic = 1; r->dec.handler = H_CALC; copy(r->path, sizeof r->path, "calculator");
         copy(r->g->answer.calc, sizeof r->g->answer.calc, r->g->opts.text); return 0;
+    }
+    if (!strcmp(r->effective, r->q)) {
+        cds_round3_text result;
+        int n = c24_text(r->g->session, r->q, &result, r->g->opts.text, r->g->opts.text_cap);
+        if (n < 0) return -1;
+        if (n) {
+            r->learned_text = result.op + 1; r->op_margin = result.margin; r->tag_margin = result.tag_margin;
+            r->deterministic = 1; r->dec.handler = H_TEXT; copy(r->path, sizeof r->path, "text_exact"); return 0;
+        }
     }
     if (h >= H_CONVERSATION) return template(r, h, r->dec.act);
     if (h == H_FACTS && r->kb4.f) {
@@ -253,6 +289,7 @@ int c14_begin(c14_runtime *r, const char *question) {
     r->g->opts.text[0] = 0; r->g->cancelled = 0;
     r->style = r->state_row = r->no_style = r->deterministic = r->finalized = 0; r->keep = 1; r->shown = 0;
     r->effective[0] = r->path[0] = r->template_name[0] = 0;
+    r->learned_act = r->learned_text = 0; r->act_margin = r->op_margin = r->tag_margin = 0;
     r->dec = (c14_decision){H_CONVERSATION, A_NONE};
     copy(r->q, sizeof r->q, question);
     int kind = cds_style_detect(question, &r->style, r->inner, sizeof r->inner);
@@ -294,8 +331,9 @@ void c14_cancel(c14_runtime *r) {
 int c14_log(c14_runtime *r, const char *directory) {
     char path[256]; if (snprintf(path, sizeof path, "%sdebug.log", directory) >= (int)sizeof path) return -1;
     FILE *f = fopen(path, "a"); if (!f) return -1;
-    fprintf(f, "path=%s handler=%d template=%s retrieval=%s field=%s lookups=%lu reads=%lu stop=%s\n",
+    fprintf(f, "path=%s handler=%d template=%s retrieval=%s field=%s lookups=%lu reads=%lu stop=%s learned_act=%d act_margin=%ld learned_text=%d op_margin=%ld tag_margin=%ld\n",
         r->path, r->dec.handler, r->template_name, cds4_status_name[r->evidence.status], cds4_rel_name[r->evidence.field],
-        (unsigned long)r->evidence.lookups, (unsigned long)r->evidence.sector_reads, cds_stop_string(r->g->answer.gen.stop));
+        (unsigned long)r->evidence.lookups, (unsigned long)r->evidence.sector_reads, cds_stop_string(r->g->answer.gen.stop),
+        r->learned_act, (long)r->act_margin, r->learned_text, (long)r->op_margin, (long)r->tag_margin);
     int bad = ferror(f); bad |= fclose(f) != 0; return bad ? -1 : 0;
 }

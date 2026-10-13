@@ -60,6 +60,13 @@ The c14 KB4 index (`kb4.bin`, from `corpus/kb/build_kb4.py`) was built from the
 same dump. A generated index must carry its own dump-specific attribution, not assume this
 notice identifies a different source dump.
 
+## learned fallback heads
+
+`campaign/router/models/round3-{act,op,tag}.cdsr` are project-trained hashed
+char+word n-gram int8 classifier weights, trained on project-generated request
+phrasing (partly written with LLM assistance). They store hashed feature weights,
+not source text, and ship under the root MIT license with the code.
+
 ## tokenizer-training data
 
 The private project's SentencePiece models were trained using TinyStories text

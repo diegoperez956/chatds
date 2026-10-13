@@ -192,6 +192,10 @@ c14_decision c14_rules(const char *q) {
     }
     return d;
 }
+int c24_primary_fact(const char *q) {
+    char s[128]; c14_plain(q, s);
+    return cds_wants_context(q) || rx(RX_FACT_CUE, s);
+}
 int c14_pronoun(const char *q) { char s[128]; c14_plain(q, s); return rx(RX_PRON, s); }
 int c14_entity_words(const char *q) {
     char s[128]; cds_normalize(q, s, sizeof s);

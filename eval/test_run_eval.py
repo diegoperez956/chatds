@@ -21,6 +21,12 @@ def host():
     return ROOT / 'clean/product/build/chatds-host'
 
 
+@pytest.fixture(autouse=True)
+def round3_heads(monkeypatch):
+    # Assistant mode fails closed without the pinned round3 heads.
+    monkeypatch.setenv('CHATDS_ROUND3_DIR', str(ROOT / 'campaign/router/models') + '/')
+
+
 def test_real_capture_excludes_question_and_expected_answer(host, tmp_path):
     model, tokenizer = product.assets(tmp_path)
     args = SimpleNamespace(host=host, model=model, tokenizer=tokenizer,
@@ -49,7 +55,7 @@ def test_input_limits_fail_before_inference(host, tmp_path, prompt, steps):
 def test_cli_writes_jsonl_and_labels_subset(host, tmp_path):
     model, tokenizer = product.assets(tmp_path)
     suite = tmp_path / 'suite.jsonl'
-    rows = [dict(id=str(n), category='python', prompt='a', answer='<unk>',
+    rows = [dict(id=str(n), category='python', prompt='python print hello', answer='<unk>',
                  accept=['<unk>'], scoring='exact', max_new_tokens=1) for n in range(2)]
     suite.write_text(''.join(json.dumps(r) + '\n' for r in rows))
     out = tmp_path / 'answers.jsonl'
