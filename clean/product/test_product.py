@@ -118,8 +118,9 @@ def test_round3_thresholds_match_python_twin(executable, tmp_path):
     # The 60 learnable acts closest to the threshold, on both sides.
     act = sorted((q for q in chat if r3.heads(q)['act'][0] != 'none'),
                  key=lambda q: abs(r3.heads(q)['act'][1] - r3.THRESHOLDS['act']))[:60]
-    text = [q for q in dict.fromkeys(gen.make(2000, 2024) + neg.make(800, 24))
-            if len(q) <= 100 and '\n' not in q and '\t' not in q and r3.text(q, raw=True)]
+    text = sorted((q for q in dict.fromkeys(gen.make(20000, 2024) + neg.make(8000, 24))
+                   if len(q) <= 100 and '\n' not in q and '\t' not in q and r3.text(q, raw=True)),
+                  key=lambda q: abs(r3.heads(q)['op'][1] - r3.THRESHOLDS['op']))[:400]
     qs = act + text
     result, out = invoke(executable, tmp_path, 'steps=2\ninstruct=1\nprompt=a\n', serve=''.join(f'R\nQ\t{q}\n' for q in qs))
     assert result.returncode == 0, result.stderr
@@ -136,14 +137,14 @@ def test_round3_thresholds_match_python_twin(executable, tmp_path):
     assert ran[True] and ran[False], ran
     fired = declined = 0
     for q, log in zip(text, logs[len(act):]):
+        if log['path'].startswith('style+') or log['path'] == 'calculator' or (log['path'] == 'text_exact' and log['learned_text'] == '0'):
+            continue
         t = r3.text(q)
-        if not t:
-            assert log['learned_text'] == '0', q
-            declined += 1
-        elif log['learned_text'] != '0':
-            assert int(log['learned_text']) == r3.to.OPID[t['op']] + 1, q
+        assert log['learned_text'] == (str(r3.to.OPID[t['op']] + 1) if t else '0'), q
+        if t:
             assert int(log['op_margin']) == t['margin'] and int(log['tag_margin']) == t['tag_margin'], q
-            fired += 1
+        fired += bool(t)
+        declined += not t
     assert fired and declined, (fired, declined)
 
 
