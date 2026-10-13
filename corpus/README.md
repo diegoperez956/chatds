@@ -17,7 +17,7 @@ needs no network or key. Training shard export needs NumPy, SentencePiece and
 the optional MIT training dependency described in [train/](../train/README.md).
 
 `kb/` builds a fact index from Simple English Wikipedia. See
-[kb/FORMAT.md](kb/FORMAT.md) and [data provenance](../docs/OFFLINE-DATA.md).
+[kb/FORMAT.md](kb/FORMAT.md), [KB4](kb/FORMAT-KB4.md) and [data provenance](../docs/OFFLINE-DATA.md).
 Set `CHATDS_USER_AGENT` to your own Wikimedia-compliant contact string when
 downloading a dump. Generated training corpora, dumps and indexes are ignored;
 the repository contains scripts, evaluation samples and a small KB test fixture,

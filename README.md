@@ -90,14 +90,12 @@ bash ds/hwkit/make-kit.sh --mode assistant \
   --model path/to/model.bin --tokenizer path/to/tok.bin \
   --kb path/to/kb.bin --kb-attribution path/to/ATTRIBUTION.txt \
   --prompt 'whats 38 times 47' --out build/chatds-kit
-
-bash ds/hwkit/smoke-test.sh "$PWD/build/chatds-kit"
 ```
 
-omit both KB options to run without fact retrieval. packaging stages files;
-it never writes a physical card. smoke tests need the melonDS 1.1 Flatpak
-(`net.kuribo64.melonDS`), `mtools` and `dosfstools`. they run offscreen and compare
-IDs, stop, context, text and calculator results against the clean host.
+omit both KB options to run without fact retrieval; `--kb4` stages a KB4 index
+instead of `--kb`. packaging stages files; it never writes a physical card.
+`ds/hwkit/smoke-test.sh` expects transformer-only answers, so it is not a c14
+validator; see [kit testing](ds/hwkit/README.md#testing).
 
 ## tokenizer assets
 
@@ -129,7 +127,8 @@ the flashcart bootloader. eject cleanly and launch `chatds.nds`.
 - touch **Send**, keyboard return or **START** to ask.
 - **B** or **Stop** cancels between engine steps. **Up/Down** scrolls.
 - **About** or **SELECT** opens credits. **Bksp** deletes a character.
-- input is ASCII, at most 127 bytes. each question starts fresh; no conversation memory.
+- input is ASCII, at most 127 bytes. each model question starts with fresh KV; a
+  small dialogue record carries follow-ups ([details](docs/PRODUCT-C14.md)).
 
 results go to `chatds/out.txt`, `ids.txt`, `ctx.txt`, `calc.txt` and `heap.txt`.
 `status=OK` means inference and file writes completed, not that the answer is

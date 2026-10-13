@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT
  * KB4 reader and ranked entity+relation retrieval. C twin of corpus/kb/kb4.py and corpus/kb/retrieve4.py
- * (layout: corpus/kb/FORMAT-KB4.md). Not wired into the product dispatch.
+ * (layout: corpus/kb/FORMAT-KB4.md).
  * Fixed buffers, bounded loops, no malloc. Reads go through one 512-byte sector buffer; every read is bounds-checked. */
 #ifndef CDS_KB4_H
 #define CDS_KB4_H
