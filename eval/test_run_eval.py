@@ -30,7 +30,8 @@ def test_real_capture_excludes_question_and_expected_answer(host, tmp_path):
     rows = run_eval.run_capture(args, suite)
     assert [r['id'] for r in rows] == ['a', 'b']
     assert rows[0]['tokens_generated'] == 2 and rows[0]['stop'] == 'budget'
-    assert rows[1]['output'] and rows[0]['output'] == rows[1]['output'] * 2
+    # The product trims answer edges, so compare decoded pieces rather than raw concatenation.
+    assert rows[1]['output'] and rows[0]['output'].split() == rows[1]['output'].split() * 2
     assert all('secret question' not in r['output'] and 'oracle canary' not in r['output']
                for r in rows)
     assert rows[0]['raw_output'] == rows[0]['output']

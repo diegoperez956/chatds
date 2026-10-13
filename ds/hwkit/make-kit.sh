@@ -3,18 +3,18 @@
 # Build the clean product and stage files; never write to a physical card.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MODE=assistant MODEL="" TOK="" KB="" KB_ATTRIBUTION="" STEPS="" PROMPT=""
+MODE=assistant MODEL="" TOK="" KB="" KB4="" KB_ATTRIBUTION="" STEPS="" PROMPT=""
 OUT="$ROOT/ds/hwkit/sdcard"
 while (($#)); do
     case "$1" in
-        --mode|--model|--tokenizer|--kb|--kb-attribution|--steps|--prompt|--out)
+        --mode|--model|--tokenizer|--kb|--kb4|--kb-attribution|--steps|--prompt|--out)
             (($# >= 2)) || { echo "Missing value: $1" >&2; exit 2; }
             case "$1" in
-                --mode) MODE=$2;; --model) MODEL=$2;; --tokenizer) TOK=$2;; --kb) KB=$2;;
+                --mode) MODE=$2;; --model) MODEL=$2;; --tokenizer) TOK=$2;; --kb) KB=$2;; --kb4) KB4=$2;;
                 --kb-attribution) KB_ATTRIBUTION=$2;;
                 --steps) STEPS=$2;; --prompt) PROMPT=$2;; --out) OUT=$2;;
             esac; shift 2;;
-        *) echo 'Usage: make-kit.sh --model PATH --tokenizer PATH [--mode assistant|story] [--kb PATH --kb-attribution PATH] [--steps N] [--prompt TEXT] [--out DIR]' >&2; exit 2;;
+        *) echo 'Usage: make-kit.sh --model PATH --tokenizer PATH [--mode assistant|story] [(--kb PATH | --kb4 PATH) --kb-attribution PATH] [--steps N] [--prompt TEXT] [--out DIR]' >&2; exit 2;;
     esac
 done
 [[ -n "$MODEL" && -n "$TOK" ]] || { echo 'Supply both --model and --tokenizer; no implicit model fallback.' >&2; exit 2; }
@@ -25,13 +25,19 @@ case "$MODE" in
 esac
 [[ "$STEPS" =~ ^[1-9][0-9]*$ ]] && ((STEPS <= 256)) || { echo 'steps must be 1..256' >&2; exit 2; }
 MODEL=$(realpath -e "$MODEL"); TOK=$(realpath -e "$TOK")
+[[ -z "$KB" || -z "$KB4" ]] || { echo 'Choose --kb or --kb4, not both' >&2; exit 2; }
+KB_NAME=kb.bin
+if [[ -n "$KB4" ]]; then KB=$KB4; KB_NAME=kb4.bin; fi
 if [[ -n "$KB" ]]; then
     ((INSTRUCT)) || { echo '--kb only makes sense in assistant mode' >&2; exit 2; }
     KB=$(realpath -e "$KB"); [[ -f "$KB" ]] || exit 2
 fi
 if [[ -n "$KB_ATTRIBUTION" ]]; then
-    [[ -n "$KB" ]] || { echo '--kb-attribution requires --kb' >&2; exit 2; }
+    [[ -n "$KB" ]] || { echo '--kb-attribution requires --kb or --kb4' >&2; exit 2; }
     KB_ATTRIBUTION=$(realpath -e "$KB_ATTRIBUTION")
+elif [[ -n "$KB" ]]; then
+    # CC BY-SA index: never stage it without its attribution.
+    echo '--kb/--kb4 requires --kb-attribution (the ATTRIBUTION.txt written by the KB builder)' >&2; exit 2
 fi
 [[ -f "$MODEL" && -f "$TOK" ]] || exit 2
 python3 - "$PROMPT" <<'PY'
@@ -47,11 +53,11 @@ STAGE=$(mktemp -d "$(dirname "$OUT")/.kit-stage.XXXXXX")
 trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/chatds" "$STAGE/.host"
 source "$ROOT/tools/env.sh"
-make -C "$ROOT/clean/product" all host
+make -j2 -C "$ROOT/clean/product" all host
 cp "$ROOT/clean/product/build/chatds.nds" "$STAGE/chatds.nds"
 cp "$MODEL" "$STAGE/chatds/model.bin"
 cp "$TOK" "$STAGE/chatds/tok.bin"
-[[ -z "$KB" ]] || cp "$KB" "$STAGE/chatds/kb.bin"
+[[ -z "$KB" ]] || cp "$KB" "$STAGE/chatds/$KB_NAME"
 [[ -z "$KB_ATTRIBUTION" ]] || cp "$KB_ATTRIBUTION" "$STAGE/chatds/kb-ATTRIBUTION.txt"
 cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$STAGE/THIRD_PARTY_NOTICES.md"

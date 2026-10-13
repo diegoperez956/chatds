@@ -183,6 +183,7 @@ typedef struct {
     size_t model_bytes;
     const char *heap_extra;     /* platform heap lines, may be NULL */
     const cds_kb *kb;           /* ctx.txt stats, may be NULL */
+    const char *prefix;         /* optional story echo, avoids a second answer buffer */
 } cds_result;
 
 /* Writes ids.txt, ctx.txt, calc.txt (instruct), heap.txt, then out.txt last

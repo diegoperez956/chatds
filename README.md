@@ -5,6 +5,10 @@ type on the touchscreen; the 67 MHz ARM9 looks up facts on the SD card,
 evaluates `calc(...)` calls and writes short python or shell snippets.
 the current model has 2.75 million parameters. it gets things wrong a lot.
 
+the current product is c14: rules, a calculator parser, text operations and
+ranked KB4 fact lookup answer first; the model only fills the gaps. it has run
+on a real DS through a DSpico flashcart. [details, hashes and gates](docs/PRODUCT-C14.md).
+
 ![chatds answering a capital question and calculating 38 times 47](docs/demo.gif)
 
 the gif uses the independent engine in headless melonDS with scripted touch
@@ -23,7 +27,8 @@ product ROM includes the tokenizer, retrieval, calculator and touch UI.
 | whats 38 times 47 | 3.522 s | 3.631 | 6.551 s |
 | sort scores biggest first | 3.522 s | 3.613 | 8.227 s |
 
-these complete runs were **2.68–2.74× faster** than the historical black-box
+these numbers predate c14, which now answers calculator questions without the
+model. these complete runs were **2.68–2.74× faster** than the historical black-box
 baseline. first token includes retrieval, tokenization and prefill; excludes
 model loading and screen refresh. decode throughput includes the EOS prediction,
 not generated tokens divided by the whole run. largest main-RAM heap-break
@@ -56,8 +61,10 @@ index and retrieved text: **CC BY-SA 4.0**, not MIT. preserve the included
 `chatds/kb-ATTRIBUTION.txt` and `licenses/CC-BY-SA-4.0.txt` when redistributing;
 identify further changes and share adapted text under the same or a permitted
 compatible license. the kit includes separate MIT model/tokenizer and linked
-runtime notices. no physical DS lite/DSpico test has been completed for this
-clean ROM; the exact kit passed host/melonDS smoke tests, not hardware certification.
+runtime notices. the v0.1.0 kit ROM itself has not been run on a physical DS
+lite/DSpico; it passed host/melonDS smoke tests, not hardware certification.
+the newer c14 ROM has run on a real DS but is not in that release; building its
+kit needs a KB4 index from `corpus/kb/build_kb4.py`.
 
 ## build from source
 
@@ -150,8 +157,8 @@ report missing MIT training dependencies rather than silently claiming coverage.
 facts can retrieve the wrong article. names get garbled; answers can be invented.
 the product retains 31/33 frozen compatibility behaviors, including five clean
 oversized-input rejections. two numerical differences have exact pinned outputs;
-[details](docs/ENGINE-SWAP-INVESTIGATION.md). no physical DS timing or stack-canary
-run has been completed for this clean product.
+[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14 has run on a real DS, but no
+physical DS timing or stack-canary run has been recorded.
 
 ChatDS code is MIT-licensed; see [LICENSE](LICENSE). the owner also releases the
 kit's trained model and runtime tokenizer under MIT; see its

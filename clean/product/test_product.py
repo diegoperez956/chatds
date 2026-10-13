@@ -2,6 +2,7 @@
 from pathlib import Path
 import struct
 import subprocess
+import sys
 
 import pytest
 
@@ -88,3 +89,7 @@ def test_story_echo_is_a_published_contract(executable, tmp_path):
     result, out = invoke(executable, tmp_path, 'steps=1\ninstruct=0\nprompt=hello\n')
     assert result.returncode == 0
     assert (out / 'out.txt').read_text().startswith('hello')
+
+
+def test_rules_tab_matches_generator():
+    subprocess.run([sys.executable, str(HERE / 'gen_rules.py'), '--check'], check=True, capture_output=True)
