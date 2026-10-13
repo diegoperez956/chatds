@@ -2,7 +2,7 @@
 # Host build + tests for the ChatDS plumbing; `make arm` cross-compiles it for the ARM9
 # (BlocksDS toolchain, see tools/env.sh) and writes per-function stack usage (build/arm/*.su).
 CC ?= cc
-SRC = kb.c retrieve.c calc.c generate.c io.c
+SRC = kb.c retrieve.c calc.c generate.c io.c textops.c prestep.c
 CFLAGS = -std=c99 -O1 -g -Wall -Wextra -Wpedantic -Werror -I../include
 SAN = -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
 WONDERFUL_TOOLCHAIN ?= $(HOME)/opt/wonderful
@@ -19,6 +19,14 @@ build/cds-prompt: kb.c retrieve.c calc.c cds_prompt.c plumbing.h | build
 # test_plumbing.c supplies a stub engine, so the plumbing never links a real one here.
 build/test-plumbing: $(SRC) test_plumbing.c plumbing.h | build
 	$(CC) $(CFLAGS) -std=gnu99 $(SAN) $(SRC) test_plumbing.c -o $@
+
+# python3 ../../campaign/pipeline/textops.py --emit-h > textops_tab.h regenerates the phrase tables
+build/test-textops: textops.c test_textops.c textops.h textops_tab.h | build
+	$(CC) $(CFLAGS) $(SAN) textops.c test_textops.c -o $@
+
+# python3 ../../campaign/pipeline/prestep.py --emit-h > prestep_tab.h regenerates the phrase tables
+build/test-prestep: prestep.c textops.c calc.c test_prestep.c prestep.h prestep_tab.h | build
+	$(CC) $(CFLAGS) $(SAN) prestep.c textops.c calc.c test_prestep.c -o $@
 
 build:
 	mkdir -p build

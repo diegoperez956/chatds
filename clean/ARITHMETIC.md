@@ -157,8 +157,17 @@ operations must be serialized and must not run in IRQ handlers.
 metadata, stack space, or the unused portion of the opt-in TCM reservation.
 When enabled, that reservation exists in the linked image even when a session
 falls back to heap; the default build reserves no DTCM. See the stack budget in
-[README.md](README.md). KV bytes are included in heap bytes, not an additional allocation. Model
+[README.md](README.md). `kv_bytes` counts keys plus values; do not add it to heap bytes. With an external
+key arena, `external_key_bytes` is included in `kv_bytes` but excluded from
+`heap_bytes`. Session `max_memory_bytes` still counts the whole arena and work
+storage. The product disables DTCM workspace pooling to leave sufficient stack
+for card I/O and dispatch; this policy does not change arithmetic. Model
 storage is reported separately. Allocation occurs only during model/session
-creation; forward/reset allocate nothing. There is no DMA, ARM7 co-processing,
-VRAM use, model I/O, or logging in a forward call. Application-level stack canary,
+creation; forward/reset allocate nothing. There is no DMA, ARM7 co-processing, model I/O, or logging in a forward call.
+By default KV lives entirely in heap. `chatds_session_create_with_keys` optionally
+accepts a caller-owned, 8-byte-aligned int16 key arena (at least half `kv_bytes`).
+Keys use halfword stores, including reset; values and arithmetic remain unchanged.
+The caller owns the arena through session destruction. Product ARM9 assigns VRAM
+D/E (192 KiB contiguous LCDC) to keys, while UI uses A/C; no arena is paged or
+quantized differently. Host tests compare full-window logits and reset exactly. Application-level stack canary,
 heap/VRAM ownership and physical timing validation remain integration gates.

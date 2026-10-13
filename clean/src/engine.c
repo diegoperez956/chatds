@@ -14,9 +14,10 @@ static DTCM_DATA struct {
 static int tcm_owned; /* ARM9 lifetime operations are explicitly serialized. */
 #endif
 
-chatds_status chatds_session_create(const chatds_model *m,
-                                   const chatds_session_options *options,
-                                   chatds_session **out) {
+static chatds_status session_create(const chatds_model *m,
+                                    const chatds_session_options *options,
+                                    int16_t *external_keys, size_t key_bytes,
+                                    chatds_session **out) {
     if (!out) return CHATDS_INVALID_ARGUMENT;
     *out = NULL;
     if (!m) return CHATDS_INVALID_ARGUMENT;
@@ -31,6 +32,8 @@ chatds_status chatds_session_create(const chatds_model *m,
     if (!cds_mul_size((size_t)c->layers * m->kv_dim, window, &kv_elements) ||
         !cds_mul_size(kv_elements, 2 * sizeof(int16_t), &kv_bytes))
         return CHATDS_OUT_OF_MEMORY;
+    if (external_keys && ((uintptr_t)external_keys % 8 || key_bytes < kv_bytes / 2))
+        return CHATDS_INVALID_ARGUMENT;
     uint32_t width = c->dim > c->hidden_dim ? c->dim : c->hidden_dim;
     size_t work_words = (size_t)c->dim * 5 + m->kv_dim * 2 + (size_t)c->hidden_dim * 2;
     size_t work_bytes = work_words * 4 + (size_t)width * 2;
@@ -52,11 +55,14 @@ chatds_status chatds_session_create(const chatds_model *m,
 #endif
     chatds_session *s = calloc(1, sizeof(*s));
     if (!s) return CHATDS_OUT_OF_MEMORY;
+    size_t external_bytes = external_keys ? kv_bytes / 2 : 0;
+    storage_bytes -= external_bytes;
     size_t heap_storage = storage_bytes + (use_tcm ? 0 : work_bytes);
     s->storage = calloc(1, heap_storage);
     if (!s->storage) { free(s); return CHATDS_OUT_OF_MEMORY; }
     s->model = m; s->kernel = kernel; s->window = window;
     s->kv_bytes = kv_bytes; s->heap_bytes = heap_storage + sizeof(*s);
+    s->external_key_bytes = external_bytes;
     s->workspace = s->storage + storage_bytes;
 #ifdef CDS_DTCM_POOL
     if (use_tcm) {
@@ -65,8 +71,12 @@ chatds_status chatds_session_create(const chatds_model *m,
         memset(&tcm_workspace, 0, sizeof(tcm_workspace));
     }
 #endif
-    s->keys = (int16_t *)s->storage;
-    s->values = s->keys + kv_elements;
+    s->keys = external_keys ? external_keys : (int16_t *)s->storage;
+    s->values = external_keys ? (int16_t *)s->storage : s->keys + kv_elements;
+    if (external_keys) {
+        volatile int16_t *p = external_keys;
+        for (size_t i = 0; i < kv_elements; i++) p[i] = 0;
+    }
     s->logits = (int32_t *)(s->values + kv_elements);
     s->scores = s->logits + c->vocab_size;
     s->probabilities = s->scores + window;
@@ -89,6 +99,19 @@ chatds_status chatds_session_create(const chatds_model *m,
     return CHATDS_OK;
 }
 
+chatds_status chatds_session_create(const chatds_model *m,
+                                   const chatds_session_options *options,
+                                   chatds_session **out) {
+    return session_create(m, options, NULL, 0, out);
+}
+chatds_status chatds_session_create_with_keys(const chatds_model *m,
+                                             const chatds_session_options *options,
+                                             int16_t *keys, size_t key_bytes,
+                                             chatds_session **out) {
+    if (!keys) { if (out) *out = NULL; return CHATDS_INVALID_ARGUMENT; }
+    return session_create(m, options, keys, key_bytes, out);
+}
+
 void chatds_session_destroy(chatds_session *s) {
     if (!s) return;
 #ifdef CDS_DTCM_POOL
@@ -98,7 +121,11 @@ void chatds_session_destroy(chatds_session *s) {
 }
 void chatds_session_reset(chatds_session *s) {
     if (!s) return;
-    memset(s->keys, 0, s->kv_bytes);
+    if (s->external_key_bytes) {
+        volatile int16_t *p = s->keys;
+        for (size_t i = 0; i < s->external_key_bytes / sizeof(int16_t); i++) p[i] = 0;
+    } else memset(s->keys, 0, s->kv_bytes / 2);
+    memset(s->values, 0, s->kv_bytes / 2);
     memset(s->logits, 0, (size_t)s->model->config.vocab_size * sizeof(int32_t));
     s->position = 0; s->saturations = 0;
 }
@@ -109,6 +136,7 @@ void chatds_session_get_info(const chatds_session *s, chatds_session_info *out) 
     out->position = s->position; out->context_length = s->window;
     out->heap_bytes = s->heap_bytes; out->tcm_bytes = s->tcm_bytes;
     out->kv_bytes = s->kv_bytes; out->saturations = s->saturations;
+    out->external_key_bytes = s->external_key_bytes;
 }
 
 static void matvec(chatds_session *s, int32_t *out, const cds_matrix *m, const int32_t *in) {

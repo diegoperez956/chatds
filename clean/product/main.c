@@ -15,6 +15,7 @@
 #include "tok.h"
 #include "chatds_ui_engine.h"
 #include "chatds_ui_demo.h" /* Scripted input only; the demo generator is not linked. */
+#include "dispatch.h"
 
 static chatds_model *model;
 static chatds_session *session;
@@ -24,6 +25,7 @@ static cds_config config;
 static cds_tokenizer tok;
 static chatds_ui_engine_gen generator;
 static chatds_ui_gen wrapped;
+static c14_runtime runtime;
 static const char *directory;
 static int *prompt_ids;
 static uint32_t output_ids[256];
@@ -33,6 +35,34 @@ static uint64_t elapsed, first, first_piece;
 static int published, publication_failed;
 static char current_question[CDS_QUESTION_MAX + 1];
 static void (*stream_piece)(void *, uint32_t, const char *, int);
+#ifdef ARM9
+extern unsigned char __sbss_end[], __sp_usr[];
+#define STACK_PAINT 0xc14c14aau
+static uintptr_t stack_base, stack_top, initial_sp;
+/* Current BlocksDS CRT reserves 48 KiB above getHeapLimit() for main's
+ * coroutine stack. Older CRTs run main in DTCM. Verify actual SP before
+ * painting either region; never write active frames or the heap. */
+static __attribute__((noinline)) void stack_paint(void) {
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    initial_sp = sp;
+    if (sp > (uintptr_t)__sbss_end && sp <= (uintptr_t)__sp_usr) {
+        stack_base = (uintptr_t)__sbss_end; stack_top = (uintptr_t)__sp_usr;
+    } else {
+        uintptr_t base = (uintptr_t)getHeapLimit();
+        if (sp <= base || sp > base + 48 * 1024) return;
+        stack_base = base; stack_top = base + 48 * 1024;
+    }
+    volatile uint32_t *p = (volatile uint32_t *)stack_base;
+    while ((uintptr_t)p + sizeof(*p) <= sp - 64) *p++ = STACK_PAINT;
+}
+static size_t stack_free(void) {
+    volatile uint32_t *p = (volatile uint32_t *)stack_base;
+    if (!p) return 0;
+    while ((uintptr_t)(p + 1) <= stack_top && *p == STACK_PAINT) p++;
+    return (uintptr_t)p - stack_base;
+}
+#endif
 
 /* Sample at each forward/frame, extending the 32-bit DS bus clock. No run is
  * timed using a single wrapping delta (full-context runs can exceed 128 s). */
@@ -68,7 +98,7 @@ static const char *piece(void *ctx, int id, int *len) { return tok_piece(ctx, id
 static void observed_piece(void *ctx, uint32_t id, const char *bytes, int len) {
     sample();
     if (!first_piece) first_piece = elapsed;
-    stream_piece(ctx, id, bytes, len);
+    if (!config.instruct) stream_piece(ctx, id, bytes, len);
 }
 static void publish(int ok) {
     char extra[512];
@@ -79,21 +109,22 @@ static void publish(int ok) {
 #ifdef ARM9
     size_t used = strlen(extra);
     snprintf(extra + used, sizeof extra - used,
-             "heap_start=%p\nheap_end=%p\nheap_limit=%p\nram_break_bytes=%lu\n",
+             "heap_start=%p\nheap_end=%p\nheap_limit=%p\nram_break_bytes=%lu\nuser_stack_base=%p\nuser_stack_initial_sp=%p\nuser_stack_available_bytes=%lu\nuser_stack_free_bytes=%lu\n",
              getHeapStart(), getHeapEnd(), getHeapLimit(),
-             (unsigned long)((uintptr_t)getHeapEnd() - 0x02000000u));
+             (unsigned long)((uintptr_t)getHeapEnd() - 0x02000000u),
+             (void *)stack_base, (void *)initial_sp,
+             (unsigned long)(stack_top - stack_base), (unsigned long)stack_free());
 #endif
-    static char story[sizeof answer_text + CDS_QUESTION_MAX + 1];
-    const char *text = answer_text;
-    if (!config.instruct) {
-        snprintf(story, sizeof story, "%s%s", current_question, answer_text);
-        text = story;
-    }
-    cds_result result = {&generator.answer, text, output_ids,
+    cds_result result = {&generator.answer, answer_text, output_ids,
         (uint32_t)(elapsed * 1000 / 33513982), ok, config.instruct, session,
-        chatds_model_memory_bytes(model), extra, kb.f ? &kb : NULL};
-    publication_failed = cds_publish(directory, &result) != 0;
-    if (publication_failed) fprintf(stderr, "result publication failed\n");
+        chatds_model_memory_bytes(model), extra, kb.f ? &kb : NULL,
+        config.instruct ? NULL : current_question};
+    publication_failed = config.instruct && runtime.g && c14_log(&runtime, directory) != 0;
+    publication_failed |= cds_publish(directory, &result) != 0;
+    if (publication_failed) {
+        cds_dlg_reset(&runtime.dlg);
+        fprintf(stderr, "result publication failed\n");
+    }
     published = 1;
 }
 static int begin(void *ctx, const char *question) {
@@ -101,17 +132,17 @@ static int begin(void *ctx, const char *question) {
     elapsed = first = first_piece = 0;
     previous = ticks();
     published = publication_failed = 0;
-    if (strlen(question) > CDS_QUESTION_MAX) return 1;
+    if (strlen(question) > CDS_QUESTION_MAX) { cds_dlg_reset(&runtime.dlg); return 1; }
     strcpy(current_question, question);
     answer_text[0] = 0;
-    int bad = generator.gen.begin(generator.gen.ctx, question);
+    int bad = config.instruct ? c14_begin(&runtime, question) : generator.gen.begin(generator.gen.ctx, question);
     sample();
     if (bad) publish(0);
     return bad;
 }
 static chatds_gen_event step(void *ctx, char *out, size_t cap, size_t *len) {
     (void)ctx;
-    chatds_gen_event event = generator.gen.step(generator.gen.ctx, out, cap, len);
+    chatds_gen_event event = config.instruct ? c14_step(&runtime, out, cap, len) : generator.gen.step(generator.gen.ctx, out, cap, len);
     sample();
     if (!first && generator.run.fed == generator.answer.gen.prompt_tokens)
         first = elapsed;
@@ -127,22 +158,97 @@ static chatds_gen_event step(void *ctx, char *out, size_t cap, size_t *len) {
 }
 static void cancel(void *ctx) {
     (void)ctx;
-    generator.gen.cancel(generator.gen.ctx);
-    /* The UI stops stepping after cancel; finish the cancellation in plumbing. */
-    cds_gen_step(&generator.run);
+    if (config.instruct) c14_cancel(&runtime);
+    else {
+        generator.gen.cancel(generator.gen.ctx);
+        /* UI stops stepping after cancel; finish cancellation in plumbing. */
+        cds_gen_step(&generator.run);
+    }
     if (!published) publish(generator.run.st == CHATDS_OK);
 }
-static int batch(void) {
+static int batch(unsigned cancel_after) {
     if (begin(NULL, config.prompt)) return 1;
     char text[CHATDS_UI_STEP_TEXT];
     size_t len;
+    unsigned count = 0;
     chatds_gen_event event;
-    do { event = step(NULL, text, sizeof text, &len); }
-    while (event != CHATDS_GEN_DONE && event != CHATDS_GEN_ERROR);
+    do {
+        event = step(NULL, text, sizeof text, &len);
+        if (event != CHATDS_GEN_DONE && event != CHATDS_GEN_ERROR && ++count == cancel_after) cancel(NULL);
+    } while (event != CHATDS_GEN_DONE && event != CHATDS_GEN_ERROR);
     return event == CHATDS_GEN_ERROR;
 }
 
+/* Shared host/ROM session test protocol. R resets; S injects permitted bounded
+ * state; Q asks; C cancels after N incremental steps. This file is absent from normal kits. Never reads labels. */
+static void escaped(FILE *f, const char *s) {
+    for (; *s; s++) {
+        if (*s == '\\') fputs("\\\\", f);
+        else if (*s == '\n') fputs("\\n", f);
+        else if (*s == '\t') fputs("\\t", f);
+        else fputc(*s, f);
+    }
+}
+static void unescape(char *s) {
+    char *out = s;
+    for (; *s; s++) {
+        if (*s == '\\' && s[1]) { s++; *out++ = *s == 'n' ? '\n' : *s == 't' ? '\t' : *s; }
+        else *out++ = *s;
+    }
+    *out = 0;
+}
+static int session_input(FILE *in, FILE *out) {
+    /* Maximum escaped S row is < 900 bytes; Q is < 260. */
+    char line[1024];
+    int bad = 0;
+    while (fgets(line, sizeof line, in)) {
+        line[strcspn(line, "\r\n")] = 0;
+        char *fields[12]; int nf = 0;
+        fields[nf++] = line;
+        for (char *p = line; *p; p++) if (*p == '\t') { *p = 0; if (nf == 12) { bad = 1; break; } fields[nf++] = p + 1; }
+        for (int i = 0; i < nf; i++) unescape(fields[i]);
+        if (!strcmp(fields[0], "R")) { cds_dlg_reset(&runtime.dlg); continue; }
+        if (!strcmp(fields[0], "S") && nf == 9) {
+            cds_dlg *d = &runtime.dlg; cds_dlg_reset(d);
+            d->task = (uint8_t)atoi(fields[1]);
+            snprintf(d->entity, sizeof d->entity, "%.*s", CDS_DLG_ENT, fields[2]);
+            snprintf(d->answer, sizeof d->answer, "%.*s", CDS_DLG_ANS, fields[3]);
+            snprintf(d->lastq, sizeof d->lastq, "%.*s", CDS_DLG_Q, fields[4]);
+            d->pend = atoi(fields[5]) != 0;
+            snprintf(d->term, sizeof d->term, "%.*s", CDS_DLG_TERM, fields[6]);
+            d->cand[0] = (uint32_t)strtoul(fields[7], NULL, 10); d->cand[1] = (uint32_t)strtoul(fields[8], NULL, 10);
+            d->ncand = d->cand[1] ? 2 : d->cand[0] ? 1 : 0; continue;
+        }
+        unsigned cancel_after = 0;
+        const char *question = nf == 2 ? fields[1] : "";
+        if (!strcmp(fields[0], "C") && nf == 3) {
+            char *end; unsigned long n = strtoul(fields[1], &end, 10);
+            if (!*fields[1] || *end || !n || n > 1024) { bad = 1; break; }
+            cancel_after = (unsigned)n; question = fields[2];
+        } else if (strcmp(fields[0], "Q") || nf != 2) { bad = 1; break; }
+        if (strlen(question) > CDS_QUESTION_MAX) { bad = 1; break; }
+        strcpy(config.prompt, question);
+        int failed = batch(cancel_after); bad |= failed;
+        fprintf(out, "%s\t", failed ? "FAIL" : "OK"); escaped(out, runtime.path); fputc('\t', out);
+        escaped(out, answer_text); fputc('\t', out); escaped(out, generator.answer.ctx); fputc('\t', out);
+        escaped(out, generator.answer.calc);
+        fprintf(out, "\t%s\t%lu\t%lu\t", cds_stop_string(generator.answer.gen.stop),
+            (unsigned long)generator.answer.gen.prompt_tokens, (unsigned long)generator.answer.gen.generated);
+        for (uint32_t i = 0; i < generator.answer.gen.generated; i++) fprintf(out, "%s%lu", i ? "," : "", (unsigned long)output_ids[i]);
+        fprintf(out, "\t%llu\n", (unsigned long long)(elapsed * 1000 / 33513982)); fflush(out);
+        if (failed) break;
+    }
+    bad |= ferror(in) || ferror(out);
+    return bad;
+}
 #ifdef ARM9
+static int card_session(void) {
+    FILE *in = fopen("fat:/chatds/session.txt", "rb"); if (!in) return 0;
+    FILE *out = fopen("fat:/chatds/session-results.tsv", "w");
+    int bad = !out;
+    if (out) { bad = session_input(in, out); fprintf(out, "status=%s\n", bad ? "FAIL" : "OK"); fclose(out); }
+    fclose(in); return 1;
+}
 static chatds_ui ui;
 static uint16_t *screen_top, *screen_bottom;
 static FILE *frame_index;
@@ -191,8 +297,11 @@ static void script_dump(void *ctx, const char *name, chatds_ui *state) {
 static int run_script(void) {
     FILE *f = fopen("fat:/chatds/ui-script.txt", "rb");
     if (!f) return 0;
-    static char script[8192];
-    size_t n = fread(script, 1, sizeof script - 1, f);
+    /* Optional test instrumentation, not an 8 KiB permanent production BSS
+     * reservation. The normal card has no ui-script.txt. */
+    char *script = malloc(8192);
+    if (!script) { fclose(f); capture_error = 1; return 1; }
+    size_t n = fread(script, 1, 8191, f);
     script[n] = 0;
     int bad = ferror(f) || fgetc(f) != EOF;
     fclose(f);
@@ -202,6 +311,7 @@ static int run_script(void) {
         chatds_script_host host = {NULL, script_tick, script_dump, screen_top, screen_bottom};
         bad = chatds_script_run(&ui, script, &host);
     }
+    free(script);
     if (frame_index) {
         bad |= ferror(frame_index);
         bad |= fclose(frame_index) != 0;
@@ -251,17 +361,21 @@ static void interactive(void) {
 
 int main(int argc, char **argv) {
     const char *model_path, *tok_path, *kb_path, *run_path;
-    int rc = 1;
+    char kb4_path[256];
+    int rc = 1, serve = 0;
 #ifdef ARM9
     (void)argc; (void)argv;
     consoleDemoInit();
     cpuStartTiming(0);
+    stack_paint();
     if (!fatInitDefault()) { puts("FAIL: fatInitDefault()"); goto idle; }
     model_path = "fat:/chatds/model.bin"; tok_path = "fat:/chatds/tok.bin";
     kb_path = "fat:/chatds/kb.bin"; run_path = "fat:/chatds/run.txt";
     directory = "fat:/chatds/";
 #else
-    if (argc != 6) { fprintf(stderr, "usage: chatds-host MODEL TOK KB-or-- RUN OUTDIR/\n"); return 2; }
+    if (argc != 6 && argc != 7) { fprintf(stderr, "usage: chatds-host MODEL TOK KB-or-- RUN OUTDIR/ [--serve]\n"); return 2; }
+    serve = argc == 7 && !strcmp(argv[6], "--serve");
+    if (argc == 7 && !serve) return 2;
     model_path = argv[1]; tok_path = argv[2]; kb_path = argv[3]; run_path = argv[4]; directory = argv[5];
     size_t dir_len = strlen(directory);
     if (!dir_len || directory[dir_len - 1] != '/') {
@@ -279,10 +393,38 @@ int main(int argc, char **argv) {
     if ((uint32_t)tokenizer.n != shape->vocab_size) goto fail;
     prompt_ids = malloc(shape->context_length * sizeof(*prompt_ids));
     if (!prompt_ids) goto fail;
+#ifdef ARM9
+    /* UI owns A/C. D (128 KiB) + E (64 KiB) form one contiguous LCDC
+     * arena at 0x06860000. Reserve keys there; values remain main-RAM resident.
+     * Halfword-only stores; no model paging, no shorter context, no KV quantization change. */
+    size_t key_bytes = (size_t)shape->layers * shape->context_length * shape->kv_heads *
+        (shape->dim / shape->heads) * sizeof(int16_t);
+    if (key_bytes > 192 * 1024) goto fail;
+    vramSetBankD(VRAM_D_LCD); vramSetBankE(VRAM_E_LCD);
+    status = chatds_session_create_with_keys(model, NULL, (int16_t *)0x06860000, 192 * 1024, &session);
+#else
     status = chatds_session_create(model, NULL, &session);
+#endif
     if (status != CHATDS_OK) goto fail;
-    cds_kb_status ks = cds_kb_open(&kb, kb_path);
-    if (ks == CDS_KB_BAD) goto fail; /* optional missing KB is allowed */
+    /* Card KB4 supersedes KB3. A malformed/unreadable KB4 is fatal, never
+     * disguised as an absent optional asset. Host accepts explicit KB4 path. */
+#ifdef ARM9
+    strcpy(kb4_path, "fat:/chatds/kb4.bin");
+#else
+    FILE *probe = fopen(kb_path, "rb"); char magic[4] = {0};
+    if (probe) { if (fread(magic, 1, 4, probe) != 4) magic[0] = 0; fclose(probe); }
+    if (!memcmp(magic, "KB4", 3)) snprintf(kb4_path, sizeof kb4_path, "%s", kb_path);
+    else {
+        const char *slash = strrchr(kb_path, '/');
+        if (slash) snprintf(kb4_path, sizeof kb4_path, "%.*s/kb4.bin", (int)(slash - kb_path), kb_path);
+        else snprintf(kb4_path, sizeof kb4_path, "%skb4.bin", directory);
+    }
+#endif
+    if (c14_open(&runtime, &generator, kb4_path)) goto fail;
+    if (!runtime.kb4.f) {
+        cds_kb_status ks = cds_kb_open(&kb, kb_path);
+        if (ks == CDS_KB_BAD) goto fail;
+    }
     tok = (cds_tokenizer){encode, piece, &tokenizer};
     chatds_ui_engine_gen_init(&generator, session, &tok, kb.f ? &kb : NULL,
                              config.instruct, prompt_ids, shape->context_length, config.steps);
@@ -293,13 +435,18 @@ int main(int argc, char **argv) {
     generator.opts.text_cap = sizeof answer_text;
     wrapped = (chatds_ui_gen){NULL, begin, step, cancel};
 #ifdef ARM9
+    (void)serve;
+    if (card_session()) goto finish;
     if (config.kbd) interactive();
+#else
+    if (serve) { rc = session_input(stdin, stdout); goto finish; }
 #endif
-    rc = batch();
+    rc = batch(0);
     goto finish;
 fail:
     publish(0);
 finish:
+    c14_close(&runtime);
     cds_kb_close(&kb);
     free(prompt_ids);
     chatds_session_destroy(session);

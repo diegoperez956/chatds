@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# Host build of the KB4 reader + ranked retrieval (not part of the product build yet).
+CC ?= cc
+CFLAGS = -std=c99 -O1 -g -Wall -Wextra -Wpedantic -Werror -I../include
+SAN = -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all
+SRC = kb4.c retrieve4.c entres_index.c retrieve.c kb.c
+
+build/test-retrieve4: $(SRC) test_retrieve4.c kb4.h entres_index.h entres4.inc plumbing.h | build
+	$(CC) $(CFLAGS) $(SAN) $(SRC) test_retrieve4.c -o $@
+
+# ARM9 syntax/stack check of the new files only (same flags as the main Makefile)
+arm4: kb4.c retrieve4.c entres_index.c kb4.h entres4.inc
+	$(MAKE) -f Makefile arm SRC="kb4.c retrieve4.c entres_index.c"
+
+build:
+	mkdir -p build
+
+test4: build/test-retrieve4
+	cd ../.. && python3 -m pytest -q clean/plumbing/test_retrieve4.py
+
+.PHONY: test4 arm4

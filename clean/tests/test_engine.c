@@ -121,7 +121,33 @@ static void test_sessions(chatds_model_config config) {
     assert(chatds_session_forward(fast, 1, &a) == CHATDS_OK);
     assert(chatds_session_forward(reference, 1, &b) == CHATDS_OK); equal_output(a, b);
     assert(chatds_session_forward(fast, 1, NULL) == CHATDS_CONTEXT_FULL);
-    chatds_session_destroy(fast); chatds_session_destroy(reference); chatds_model_destroy(model);
+    chatds_session_destroy(fast); chatds_session_destroy(reference);
+    /* Split keys into caller arena: exact full-window logits and reset, with
+     * guards proving neither reset nor forward writes beyond key_bytes. */
+    size_t key_bytes = (size_t)config.layers * config.context_length * (config.dim / config.heads * config.kv_heads) * 2;
+    unsigned char *arena = malloc(key_bytes + 16); assert(arena);
+    memset(arena, 0xa5, key_bytes + 16);
+    opts = (chatds_session_options){0, CHATDS_KERNEL_FAST, 0};
+    assert(chatds_session_create_with_keys(model, &opts, NULL, key_bytes, &fast) == CHATDS_INVALID_ARGUMENT && !fast);
+    assert(chatds_session_create_with_keys(model, &opts, (int16_t *)(arena + 1), key_bytes, &fast) == CHATDS_INVALID_ARGUMENT && !fast);
+    assert(chatds_session_create_with_keys(model, &opts, (int16_t *)arena, key_bytes - 1, &fast) == CHATDS_INVALID_ARGUMENT && !fast);
+    assert(chatds_session_create_with_keys(model, &opts, (int16_t *)arena, key_bytes, &fast) == CHATDS_OK);
+    assert(chatds_session_create(model, NULL, &reference) == CHATDS_OK);
+    chatds_session_get_info(fast, &info); chatds_session_get_info(reference, &after);
+    assert(info.external_key_bytes == key_bytes && after.external_key_bytes == 0);
+    assert(info.heap_bytes + key_bytes == after.heap_bytes);
+    for (int repeat = 0; repeat < 2; repeat++) {
+        chatds_session_reset(fast); chatds_session_reset(reference);
+        for (uint32_t p = 0; p < config.context_length; p++) {
+            uint32_t token = (p * 3 + 1) % config.vocab_size;
+            assert(chatds_session_forward(reference, token, &a) == CHATDS_OK);
+            assert(chatds_session_forward(fast, token, &b) == CHATDS_OK);
+            equal_output(a, b);
+        }
+        for (size_t i = key_bytes; i < key_bytes + 16; i++) assert(arena[i] == 0xa5);
+    }
+    chatds_session_destroy(fast); chatds_session_destroy(reference); free(arena);
+    chatds_model_destroy(model);
 }
 static void reject_patch(fixture f, size_t offset, uint32_t value, chatds_status expected) {
     unsigned char saved[4]; memcpy(saved, f.bytes + offset, 4); put32(f.bytes + offset, value);

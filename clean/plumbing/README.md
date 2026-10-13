@@ -12,6 +12,8 @@ planning and streaming, and card I/O. A C port of `corpus/chatds_runtime.py` and
 | `calc.c` | int64 fixed-point `calc()` (no 128-bit math, the ARM9 has none) |
 | `generate.c` | `cds_generate`, `cds_session_plan` (shrinks the KV window to fit a memory budget), `cds_ask`; `cds_gen_begin`/`cds_gen_step`/`cds_ask_begin` run the same loop one forward at a time (the DS UI) |
 | `io.c` | `run.txt`, file preflight, atomic `out.txt`/`ids.txt`/`ctx.txt`/`calc.txt`/`heap.txt` (status last) |
+| `textops.c` | deterministic text operations (uppercase, reverse, counts, ...), twin of `campaign/pipeline/textops.py` |
+| `prestep.c` | c14 pre-routing steps, twin of `campaign/pipeline/prestep.py`: style wrappers ("answer in all caps: X"), deterministic calc() parser, textops negative guard, 420-byte dialogue state record (`cds_dlg`); `make build/test-prestep`, parity in `campaign/pipeline/test_prestep.py` |
 
 ## Test
 

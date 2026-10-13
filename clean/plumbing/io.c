@@ -134,9 +134,10 @@ int cds_publish(const char *dir, const cds_result *r) {
         if (r->session) {
             chatds_session_info in;
             chatds_session_get_info(r->session, &in);
-            fprintf(f, "session_heap_bytes=%lu\nsession_tcm_bytes=%lu\nkv_bytes=%lu\ncontext=%lu\nsaturations=%llu\n",
+            fprintf(f, "session_heap_bytes=%lu\nsession_tcm_bytes=%lu\nkv_bytes=%lu\ncontext=%lu\nsaturations=%llu\nexternal_key_bytes=%lu\n",
                     (unsigned long)in.heap_bytes, (unsigned long)in.tcm_bytes, (unsigned long)in.kv_bytes,
-                    (unsigned long)in.context_length, (unsigned long long)in.saturations);
+                    (unsigned long)in.context_length, (unsigned long long)in.saturations,
+                    (unsigned long)in.external_key_bytes);
         }
         if (r->heap_extra)
             fputs(r->heap_extra, f);
@@ -146,8 +147,8 @@ int cds_publish(const char *dir, const cds_result *r) {
     /* out.txt last: pollers treat it as the completion signal; status= is its final line. */
     if ((f = open_in(dir, "out.txt", path))) {
         uint32_t tokens = g->prompt_tokens ? g->prompt_tokens - 1 + g->generated : 0;
-        fprintf(f, "%s\ntokens=%lu\nprompt_tokens=%lu\ngenerated=%lu\nstop=%s\nms=%lu\nstatus=%s\n",
-                r->text ? r->text : "", (unsigned long)tokens, (unsigned long)g->prompt_tokens,
+        fprintf(f, "%s%s\ntokens=%lu\nprompt_tokens=%lu\ngenerated=%lu\nstop=%s\nms=%lu\nstatus=%s\n",
+                r->prefix ? r->prefix : "", r->text ? r->text : "", (unsigned long)tokens, (unsigned long)g->prompt_tokens,
                 (unsigned long)g->generated, cds_stop_string(g->stop), (unsigned long)r->ms,
                 r->ok && !bad ? "OK" : "FAIL");
     }

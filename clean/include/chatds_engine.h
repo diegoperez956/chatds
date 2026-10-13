@@ -58,6 +58,7 @@ typedef struct {
     /* Cumulative saturating arithmetic / KV clipping events since reset.
      * Nonzero is an accuracy warning, not memory corruption or an error. */
     uint64_t saturations;
+    size_t external_key_bytes; /* part of kv_bytes, excluded from heap_bytes */
 } chatds_session_info;
 
 /* Copies/owns the model bytes, never modifies the file/caller buffer. On failure
@@ -80,6 +81,14 @@ void chatds_model_destroy(chatds_model *model);
 chatds_status chatds_session_create(const chatds_model *model,
                                    const chatds_session_options *options,
                                    chatds_session **out);
+/* Optional caller-owned key arena, 8-byte aligned, at least kv_bytes/2.
+ * Caller keeps it mapped and exclusive until destroy. Values remain in heap.
+ * Uses halfword writes (safe for ARM9 LCDC VRAM). Arithmetic/window unchanged.
+ * max_memory_bytes still counts ALL session storage, including this arena. */
+chatds_status chatds_session_create_with_keys(const chatds_model *model,
+                                             const chatds_session_options *options,
+                                             int16_t *keys, size_t key_bytes,
+                                             chatds_session **out);
 void chatds_session_destroy(chatds_session *session);
 void chatds_session_reset(chatds_session *session);
 void chatds_session_get_info(const chatds_session *session,

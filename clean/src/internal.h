@@ -51,7 +51,7 @@ struct chatds_session {
     uint32_t window, position;
     unsigned char *storage, *workspace;
     int owns_tcm;
-    size_t heap_bytes, tcm_bytes, kv_bytes;
+    size_t heap_bytes, tcm_bytes, kv_bytes, external_key_bytes;
     uint64_t saturations;
     int16_t *keys, *values;
     int16_t *quantized;

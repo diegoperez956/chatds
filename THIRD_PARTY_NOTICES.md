@@ -41,7 +41,7 @@ SOFTWARE.
 Context excerpts in `ds/engine-golden/fixtures.json`, the benchmark archive and
 historical result text are derived from Simple English Wikipedia contributors.
 Source: https://simple.wikipedia.org/ (article titles appear in the retained
-questions/context). The KB fixture `corpus/kb/fixtures/mini.xml` contains short
+questions/context). The KB fixtures `corpus/kb/fixtures/mini.xml` and `kb4_mini.xml` contain short
 edited/synthetic test pages; conservatively apply the same attribution to its
 article-like text.
 
@@ -56,7 +56,8 @@ The private release KB3 used the Simple English Wikipedia pages/articles dump:
 https://dumps.wikimedia.org/simplewiki/latest/simplewiki-latest-pages-articles.xml.bz2
 Last-Modified: 2026-09-01 20:27:10 GMT; SHA1:
 `1bdd97642b5f511def336cce8afd34996db52d49`.
-A generated index must carry its own dump-specific attribution, not assume this
+The c14 KB4 index (`kb4.bin`, from `corpus/kb/build_kb4.py`) was built from the
+same dump. A generated index must carry its own dump-specific attribution, not assume this
 notice identifies a different source dump.
 
 ## tokenizer-training data
