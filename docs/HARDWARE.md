@@ -6,9 +6,9 @@ The target ARM946E-S runs at 67 MHz (ARMv5TE), without FPU or SIMD. Main RAM is
 MACs and software float only for initialization/normalization coefficients.
 [GBATEK](https://mgba-emu.github.io/gbatek/) documents the CPU/memory map.
 
-The clean product reserves 10 KiB DTCM for bounded session workspace and keeps
-KV on the heap. Heap break is only a footprint proxy: it does not certify stack
-headroom. See [engine arithmetic/memory contract](../clean/ARITHMETIC.md).
+The clean product leaves DTCM workspace pooling off to keep stack for card I/O
+and keeps KV values on the heap, keys in caller-owned VRAM. Heap break is only
+a footprint proxy: it does not certify stack headroom. See [engine arithmetic/memory contract](../clean/ARITHMETIC.md).
 
 Historical DS lite + DSpico observations in `ds/hw-results/` are data, not
 calibration source. File-level sequential bandwidth was about 1826 KiB/s;

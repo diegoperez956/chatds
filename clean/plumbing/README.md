@@ -1,7 +1,7 @@
 # ChatDS plumbing (clean engine)
 
 Product glue between the clean engine (`clean/include/chatds_engine.h`) and the DS app:
-KB3 retrieval, the `C:/Q:/A:` prompt, `calc()`, the generation loop with KV/memory
+KB3 and KB4 retrieval, the `C:/Q:/A:` prompt, `calc()`, the generation loop with KV/memory
 planning and streaming, and card I/O. A C port of `corpus/chatds_runtime.py` and
 `corpus/kb/kb.py`; nothing else was read. API and limits: `plumbing.h`.
 
@@ -9,6 +9,8 @@ planning and streaming, and card I/O. A C port of `corpus/chatds_runtime.py` and
 |---|---|
 | `kb.c` | KB2/KB3 reader: one-sector cache, every read bounds-checked, header validated at open |
 | `retrieve.c` | gate, n-gram retrieval with fuzzy fallback, prompt |
+| `kb4.c`, `retrieve4.c` | KB4 reader and ranked entity+relation retrieval, twins of `corpus/kb/kb4.py`/`retrieve4.py`; parity in `test_retrieve4.py` |
+| `entres_index.c` | opt-in ER1 entity-resolution sidecar reader (`corpus/kb/FORMAT-ENTRES.md`); the c14 kit ships no ER1 sidecar |
 | `calc.c` | int64 fixed-point `calc()` (no 128-bit math, the ARM9 has none) |
 | `generate.c` | `cds_generate`, `cds_session_plan` (shrinks the KV window to fit a memory budget), `cds_ask`; `cds_gen_begin`/`cds_gen_step`/`cds_ask_begin` run the same loop one forward at a time (the DS UI) |
 | `io.c` | `run.txt`, file preflight, atomic `out.txt`/`ids.txt`/`ctx.txt`/`calc.txt`/`heap.txt` (status last) |
