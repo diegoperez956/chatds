@@ -97,7 +97,7 @@ bash ds/hwkit/make-kit.sh --mode assistant \
 
 omit both KB options to run without fact retrieval; `--kb4` stages a KB4 index
 instead of `--kb`. packaging stages files; it never writes a physical card.
-`ds/hwkit/smoke-test.sh` expects transformer-only answers, so it is not a c14
+`ds/hwkit/smoke-test.sh` expects transformer-only answers, so it is not a c14/c24
 validator; see [kit testing](ds/hwkit/README.md#testing).
 
 ## tokenizer assets
