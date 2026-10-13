@@ -1,4 +1,5 @@
 """Execute the real clean host product with small self-contained DSQ8 assets."""
+import hashlib
 import os
 from pathlib import Path
 import struct
@@ -9,6 +10,10 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
+sys.path[:0] = [str(ROOT / 'campaign/router'), str(ROOT / 'campaign/pipeline')]
+import round3 as r3, gen_textops_requests as gen, gen_textops_negatives as neg  # noqa: E402
+CHAT = ['hi there', 'hello chatds', 'thanks a lot', 'thank u so much', 'bye for now', 'see ya', 'who are you',
+        'what are you', 'what can you do', 'say that again', 'repeat that', 'are you sure', 'good morning', 'cheers mate']
 
 
 def assets(directory, window=2048):
@@ -38,15 +43,15 @@ def executable():
     return HERE / 'build/chatds-host'
 
 
-def invoke(executable, tmp_path, config, kb=None, output=None, learned_directory=None, window=2048):
+def invoke(executable, tmp_path, config, kb=None, output=None, learned_directory=None, window=2048, serve=None):
     model, tokenizer = assets(tmp_path, window)
     run = tmp_path / 'run.txt'
     run.write_text(config)
     out = output or tmp_path / 'out'
     if output is None:
         out.mkdir()
-    result = subprocess.run([executable, model, tokenizer, kb or '-', run, str(out) + '/'],
-                            capture_output=True, text=True, timeout=10,
+    result = subprocess.run([executable, model, tokenizer, kb or '-', run, str(out) + '/', *(['--serve'] if serve else [])],
+                            input=serve, capture_output=True, text=True, timeout=60,
                             env=dict(os.environ, CHATDS_ROUND3_DIR=str(learned_directory or ROOT / 'campaign/router/models') + '/'))
     return result, out
 
@@ -88,7 +93,7 @@ def test_unwritable_publication_is_not_success(executable, tmp_path):
 
 
 @pytest.mark.parametrize('head', ['act', 'op', 'tag'])
-@pytest.mark.parametrize('failure', ['missing', 'corrupt'])
+@pytest.mark.parametrize('failure', ['missing', 'corrupt', 'resigned'])
 def test_round3_assets_fail_closed(executable, tmp_path, head, failure):
     models = tmp_path / 'models'; models.mkdir()
     for name in ('act', 'op', 'tag'):
@@ -98,10 +103,48 @@ def test_round3_assets_fail_closed(executable, tmp_path, head, failure):
             dest.symlink_to(src)
         elif failure == 'corrupt':
             blob = bytearray(src.read_bytes()); blob[-1] ^= 1; dest.write_bytes(blob)
+        elif failure == 'resigned':
+            # Internally consistent CDSR (valid body SHA) that is not the committed head.
+            blob = bytearray(src.read_bytes()); blob[len(blob) // 2] ^= 1
+            blob[20:52] = hashlib.sha256(blob[64:]).digest(); r3.read_head(bytes(blob)); dest.write_bytes(blob)
     result, out = invoke(executable, tmp_path, 'steps=2\ninstruct=1\nprompt=hello\n', learned_directory=models)
     assert result.returncode != 0
     assert (out / 'out.txt').read_text().endswith('status=FAIL\n')
     assert (out / 'ids.txt').read_text() == ''
+
+
+def test_round3_thresholds_match_python_twin(executable, tmp_path):
+    chat = [p + q + s for p in ('', 'hey ', 'ok so ', 'well ', 'um ') for q in CHAT for s in ('', '.', '!', ' pls')]
+    # The 60 learnable acts closest to the threshold, on both sides.
+    act = sorted((q for q in chat if r3.heads(q)['act'][0] != 'none'),
+                 key=lambda q: abs(r3.heads(q)['act'][1] - r3.THRESHOLDS['act']))[:60]
+    text = [q for q in dict.fromkeys(gen.make(2000, 2024) + neg.make(800, 24))
+            if len(q) <= 100 and '\n' not in q and '\t' not in q and r3.text(q, raw=True)]
+    qs = act + text
+    result, out = invoke(executable, tmp_path, 'steps=2\ninstruct=1\nprompt=a\n', serve=''.join(f'R\nQ\t{q}\n' for q in qs))
+    assert result.returncode == 0, result.stderr
+    logs = [dict(f.split('=', 1) for f in line.split()) for line in (out / 'debug.log').read_text().splitlines()]
+    assert len(logs) == len(qs)
+    ran = {True: 0, False: 0}
+    for q, log in zip(act, logs):
+        if log['act_margin'] != '0':
+            margin = r3.heads(q)['act'][1]
+            fired = r3.act(q)
+            assert int(log['act_margin']) == margin, q
+            assert int(log['learned_act']) == (r3.ACTS.index(fired[0]) if fired else 0), q
+            ran[margin >= r3.THRESHOLDS['act']] += 1
+    assert ran[True] and ran[False], ran
+    fired = declined = 0
+    for q, log in zip(text, logs[len(act):]):
+        t = r3.text(q)
+        if not t:
+            assert log['learned_text'] == '0', q
+            declined += 1
+        elif log['learned_text'] != '0':
+            assert int(log['learned_text']) == r3.to.OPID[t['op']] + 1, q
+            assert int(log['op_margin']) == t['margin'] and int(log['tag_margin']) == t['tag_margin'], q
+            fired += 1
+    assert fired and declined, (fired, declined)
 
 
 def test_insufficient_borrowed_workspace_fails_closed(executable, tmp_path):
