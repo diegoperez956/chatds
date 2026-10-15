@@ -113,9 +113,40 @@ python3 ds/tokenizer/tokbin.py build/my-tokenizer.model build/tok.bin
 this trains a **new** tokenizer, not the tokenizer used by existing weights.
 train your model with that exact `.model`, or obtain a matching licensed
 tokenizer from your weight provider. matching vocabulary sizes alone is not
-enough. [training instructions](train/README.md) describe checkpoint training;
-a device-format converter is not included. host tests generate small synthetic
+enough. [training instructions](train/README.md) describe checkpoint training and the
+standalone clean-room DSQ8 exporter. host tests generate small synthetic
 tokenizers locally and need no pretrained assets.
+
+## train -> export -> host check -> melonDS
+
+Train with the exact tokenizer used for your shards/checkpoint; see
+[train/](train/README.md) for the optional trainer dependencies. Export trusted
+float checkpoints on CPU, then smoke-test the clean host before emulation:
+
+```sh
+python3 train/train_instruct.py --data_dir=path/to/shards --out_dir=build/training \
+  --device=cpu --compile=False
+python3 train/export_dsq8.py --ckpt build/training/ckpt.pt \
+  --tok build/tok.bin --tok-model build/tokenizer.model --out build/model.bin
+make -j2 host
+mkdir -p build/export-host
+printf 'steps=8\\nkbd=0\\ninstruct=0\\nprompt=Once upon a time\\n' > build/export-run.txt
+clean/product/build/chatds-host build/model.bin build/tok.bin - \
+  build/export-run.txt build/export-host/
+make -j2
+QT_QPA_PLATFORM=offscreen python3 tools/engine_golden.py run \
+  --rom clean/product/build/chatds.nds --model build/model.bin --tokenizer build/tok.bin \
+  --question 'Once upon a time' --no-instruct --steps 8 \
+  --work build/export-melon --timeout 120 --output build/export-melon/result.json
+```
+
+Use a fresh emulator work directory, verify no window/display connection, and
+skip emulation if headless operation cannot be verified. These are transformer
+smokes, not quality or c24 parity gates. The exporter needs only PyTorch/NumPy,
+not upstream converter code; its hash sidecar pins the emitted model/tokenizer.
+`python3 -m pytest -q train/test_export_dsq8.py` runs synthetic export/clean-engine
+checks without checkpoints or large binaries in git. Package validated assets
+with `ds/hwkit/make-kit.sh` for c24; see [kit testing](ds/hwkit/README.md#testing).
 
 ## run
 
