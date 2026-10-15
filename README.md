@@ -132,7 +132,7 @@ python3 train/export_dsq8.py --ckpt build/training/ckpt.pt \
   --tok build/tok.bin --tok-model build/tokenizer.model --out build/model.bin
 make -j2 host
 mkdir -p build/export-host
-printf 'steps=8\\nkbd=0\\ninstruct=0\\nprompt=Once upon a time\\n' > build/export-run.txt
+printf 'steps=8\nkbd=0\ninstruct=0\nprompt=Once upon a time\n' > build/export-run.txt
 clean/product/build/chatds-host build/model.bin build/tok.bin - \
   build/export-run.txt build/export-host/
 make -j2
