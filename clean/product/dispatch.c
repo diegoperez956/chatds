@@ -249,6 +249,8 @@ static int core(c14_runtime *r) {
         char *sp = strrchr(r->g->answer.ctx, ' '); if (sp) *sp = 0; else r->g->answer.ctx[0] = 0;
         cds_format_prompt(r->effective, r->g->answer.ctx, r->g->answer.prompt, sizeof r->g->answer.prompt);
     }
+    /* Generator reset/forward owns the borrowed KV values from here on. */
+    c24_models_invalidate(r->g->session);
     chatds_status st = cds_gen_begin(&r->g->run, r->g->session, r->g->tok, r->g->answer.prompt, &r->g->opts, &r->g->answer.gen);
     r->g->run.calc = r->g->answer.calc;
     return st == CHATDS_OK ? 0 : -1;

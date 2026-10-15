@@ -1,17 +1,20 @@
 /* SPDX-License-Identifier: MIT
- * Product-private session seam: no engine ABI changes. The generator always
- * resets KV before prefill; deterministic paths never read it. Load exact int8
- * CDSR files into that idle arena, share one hash buffer, discard all views
- * before any forward. Model arithmetic/context/KV precision stay unchanged. */
+ * Product-private session seam: no engine ABI changes. Cache validated heads
+ * in idle KV values across deterministic turns. Invalidate before generator
+ * reset/prefill overwrites that arena; never borrow halfword-only VRAM keys. */
 #include <stdio.h>
 #include <string.h>
 #include "internal.h"
 #include "learned.h"
 static const char *model_directory;
+static chatds_session *owner;
+static cds_round3 cached;
+static unsigned loaded;
 enum { ACT_BYTES = 22660, OP_BYTES = 11452, TAG_BYTES = 5224,
        BLOB_BYTES = ACT_BYTES + OP_BYTES + TAG_BYTES };
 static const char *const names[] = {"round3-act.cdsr", "round3-op.cdsr", "round3-tag.cdsr"};
 static const size_t sizes[] = {ACT_BYTES, OP_BYTES, TAG_BYTES};
+static const size_t offsets[] = {0, ACT_BYTES, ACT_BYTES + OP_BYTES};
 static const uint8_t hashes[3][32] = {
  {0xe4,0x67,0x81,0xff,0xcd,0xbf,0xf4,0x85,0xf3,0x3f,0xcc,0x91,0x8d,0xff,0xc5,0x99,0x4d,0x3d,0xa8,0x26,0x24,0x1a,0xe5,0x4a,0x71,0x2b,0xef,0xb3,0x8a,0x1a,0x7a,0x86},
  {0xaa,0x82,0x5e,0x49,0x2e,0x45,0xb5,0x37,0xdf,0x09,0x15,0x0e,0x64,0x91,0x56,0x36,0xcb,0xa7,0x77,0xca,0x7e,0x9e,0x2d,0xdb,0xaa,0xdc,0x2c,0x9e,0x30,0xdb,0x5d,0xd1},
@@ -33,29 +36,44 @@ static int load(int head, uint8_t *blob, cds_router *r) {
     bad |= fgetc(f) != EOF || ferror(f); bad |= fclose(f) != 0;
     if (bad) return -1;
     cds_router_sha256(blob, sizes[head], hash);
-    if (memcmp(hash, hashes[head], 32) || cds_router_open(r, blob, sizes[head], 1)) return -1;
+    /* The pinned whole-file SHA covers header and body, including the CDSR
+     * body digest. Do not hash the same bytes again in cds_router_open. */
+    if (memcmp(hash, hashes[head], 32) || cds_router_open(r, blob, sizes[head], 0)) return -1;
     return 0;
 }
-static int models(chatds_session *s, cds_round3 *r, cds_router_work **work) {
-    uint8_t *blob; if (arena(s, &blob, work)) return -1;
-    if (load(0, blob, &r->act) || load(1, blob + ACT_BYTES, &r->op) ||
-        load(2, blob + ACT_BYTES + OP_BYTES, &r->tag)) return -1;
-    r->act_threshold = 1793; r->op_threshold = 386; r->tag_threshold = 0;
+static int ensure(void *ctx, int head) {
+    chatds_session *s = ctx;
+    uint8_t *blob; cds_router_work *work;
+    if (s != owner || arena(s, &blob, &work)) return -1;
+    if (loaded & (1u << head)) return 0;
+    cds_router *r = head == 0 ? &cached.act : head == 1 ? &cached.op : &cached.tag;
+    if (load(head, blob + offsets[head], r)) return -1;
+    loaded |= 1u << head;
     return 0;
+}
+void c24_models_invalidate(chatds_session *s) {
+    if (s == owner) {
+        loaded = 0;
+        memset(&cached.act, 0, sizeof cached.act);
+        memset(&cached.op, 0, sizeof cached.op);
+        memset(&cached.tag, 0, sizeof cached.tag);
+    }
 }
 int c24_models_init(chatds_session *s, const char *directory) {
-    cds_round3 r; cds_router_work *work;
-    model_directory = directory;
-    return models(s, &r, &work);
+    uint8_t *blob; cds_router_work *work;
+    owner = s; model_directory = directory; loaded = 0;
+    memset(&cached, 0, sizeof cached);
+    cached.act_threshold = 1793; cached.op_threshold = 386; cached.tag_threshold = 0;
+    return arena(s, &blob, &work);
 }
 int c24_act(chatds_session *s, const char *q, int32_t *margin) {
-    cds_round3 r; cds_router_work *work; uint8_t *blob;
-    if (arena(s, &blob, &work) || load(0, blob, &r.act)) return -1;
-    r.act_threshold = 1793;
-    return cds_round3_act(&r, work, q, 0, margin);
+    uint8_t *blob; cds_router_work *work;
+    if (!cds_round3_act_eligible(q)) return 0;
+    if (arena(s, &blob, &work) || ensure(s, 0)) return -1;
+    return cds_round3_act(&cached, work, q, 0, margin);
 }
 int c24_text(chatds_session *s, const char *q, cds_round3_text *result, char *out, size_t cap) {
-    cds_round3 r; cds_router_work *work;
-    if (models(s, &r, &work)) return -1;
-    return cds_round3_textop(&r, work, q, result, out, cap);
+    uint8_t *blob; cds_router_work *work;
+    if (s != owner || arena(s, &blob, &work)) return -1;
+    return cds_round3_textop_lazy(&cached, work, q, result, out, cap, ensure, s);
 }

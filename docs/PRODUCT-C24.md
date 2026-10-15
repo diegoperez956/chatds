@@ -23,8 +23,13 @@ dialogue reset rules are unchanged. story mode does not load the heads.
 twins of `campaign/router/round3.py`. `clean/product/learned.c` loads the three
 CDSR heads from the card, checks their sha256 and borrows 49,448 B of idle
 main-RAM KV values for them (39,336 B heads + 10,112 B hash scratch). the
-generator resets KV before every prefill, so no state lives there. missing or
-corrupt heads fail closed at startup, not back to c14. the heads are committed
+loader keeps validated heads across deterministic turns and loads only the
+needed head after eligibility checks (tag only after op acceptance). It checks
+the pinned whole-file SHA once per card load; cached use does not rehash.
+Before generator reset/prefill, dispatch invalidates every cached view because
+KV will overwrite those bytes. The next eligible turn reloads only what it needs.
+Missing, corrupt or truncated heads fail closed on demand, not back to c14;
+insufficient arena capacity still fails startup. The heads are committed
 in `campaign/router/models/`; `make-kit.sh` stages them in assistant kits.
 
 ## blind scores vs c14
@@ -87,6 +92,26 @@ also names KB4 and the learned heads; `kit.json` differs only by that hash.
 emulated per-answer time on the screen: p50 229 ms, p95 12.4 s, max 16.1 s.
 these are melonDS milliseconds, not physical DS time. the dev-set parity, screen
 and memory runs use the private validation harness and eval sets, as for c14.
+
+## lazy-loader validation
+
+Same fixed 60-case screen (71 turns): host == ROM, zero mismatches including
+learned IDs/margins. All dev-v1 (2,236) and dev-v2 (2,058) turns match reference
+condition 24, zero answer/metadata mismatches. Instrumented host tests count
+one read and one whole-file SHA per head load, no warm-turn reads/hashes, and
+reload after KV invalidation. Corrupt/truncated/missing/re-signed files still
+publish the same empty failed answer and IDs as before (12/12 host checks).
+
+Before/after **emulated melonDS ms per answer**, nearest-rank percentiles on
+71 turns: p50 **229 -> 92**, p95 **12,405 -> 12,111**, max **16,097 -> 15,727**.
+Both runs deny display sockets and GPU access, verify Qt offscreen, and use
+private FAT/config/ROM copies with bounded timeouts and owned-PID cleanup.
+Screen peak heap-break proxy stays **3,596,288 B** (72 KiB margin). The same
+12-turn stop/RAM stress also has zero host/ROM mismatches; its peak increases
+**3,596,288 -> 3,600,384 B**. Worst conservative allocator margin is therefore
+**69,632 B (68 KiB)**, above the 64 KiB gate. Minimum observed stack free is
+6,088 B after the change. Heap break is not live-allocation peak or physical DS
+timing. Context remains 256; no new head-sized allocation.
 
 ## memory
 

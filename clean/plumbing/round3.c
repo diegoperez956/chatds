@@ -7,7 +7,7 @@
 #include "prestep.h"
 #include "textops_tab.h"
 
-static int ascii_ok(const char *q) {
+int cds_round3_act_eligible(const char *q) {
     if (!q || !*q || strlen(q) > 127) return 0;
     for (const unsigned char *p = (const unsigned char *)q; *p; p++)
         if (*p < 32 || *p > 126) return 0;
@@ -16,7 +16,7 @@ static int ascii_ok(const char *q) {
 
 int cds_round3_act(const cds_round3 *r, cds_router_work *work, const char *q,
                   int rules_fired, int32_t *margin) {
-    if (rules_fired || !ascii_ok(q)) return 0;
+    if (rules_fired || !cds_round3_act_eligible(q)) return 0;
     cds_route_result p;
     cds_router_run(&r->act, work, q, &p);
     if (margin) *margin = p.margin;
@@ -54,19 +54,22 @@ static void literal(const char *q, int a, int b, char *out) {
     memcpy(out, q + a, (size_t)(b - a)); out[b - a] = 0;
 }
 
-int cds_round3_textop(const cds_round3 *r, cds_router_work *work, const char *q,
-                     cds_round3_text *result, char *out, size_t cap) {
+int cds_round3_textop_lazy(const cds_round3 *r, cds_router_work *work, const char *q,
+                          cds_round3_text *result, char *out, size_t cap,
+                          cds_round3_load_head ensure, void *ctx) {
     cds_text_token T[130];
     if (!result || !out || cap < 256) return 0;
     memset(result, 0, sizeof *result); out[0] = 0;
-    if (!ascii_ok(q) || cds_textops_guard(q)) return 0;
+    if (!cds_round3_act_eligible(q) || cds_textops_guard(q)) return 0;
     int n = cds_textops_tokens(q, T, 130);
     if (!n || n > 64) return 0;
     for (int i = 0; i < n; i++)
         if (!T[i].q && (in_list(TO_BLOCK, T[i].lw) || path(q, T[i]))) return 0;
+    if (ensure && ensure(ctx, 1)) return -1;
     cds_route_result p;
     cds_router_run(&r->op, work, q, &p);
     if (!p.route || p.route > TO_NOPS || p.margin < r->op_threshold) return 0;
+    if (ensure && ensure(ctx, 2)) return -1;
     int op = p.route - 1, labs[64];
     int32_t min_margin = 0x7fffffff;
     for (int i = 0; i < n; i++) {
@@ -124,4 +127,9 @@ int cds_round3_textop(const cds_round3 *r, cds_router_work *work, const char *q,
     if (first[2]>=0) result->ystart=T[first[2]].s, result->yend=T[last[2]].e;
     result->margin=p.margin; result->tag_margin=min_margin;
     return len;
+}
+
+int cds_round3_textop(const cds_round3 *r, cds_router_work *work, const char *q,
+                     cds_round3_text *result, char *out, size_t cap) {
+    return cds_round3_textop_lazy(r, work, q, result, out, cap, NULL, NULL);
 }
