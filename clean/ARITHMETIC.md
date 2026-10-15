@@ -110,6 +110,41 @@ Weighted Q8.8 values accumulate without overflow in int32, then shift seven to
 return Q16.16. There is no sliding window: only positions already consumed in
 that session participate. Reset clears KV, position, logits and saturation count.
 
+## Pocket math notebook prototype
+
+Ownership is conservative: leading/trailing prose, unknown words and unsupported
+syntax return **0 (not mine)**, continuing the normal pipeline. The entire body
+is checked for non-grammar words before limits, including overlong inputs;
+a math-looking prefix never overrides prose. Only unambiguous notebook bound
+violations return **-1**; valid specs return **1**, with domain/overflow checked
+by evaluation. No other condition's grammar or routing is changed.
+
+`plumbing/mathnb.c` follows the existing `calc.c` decimal convention, not
+activation Q16.16: signed integers represent real values times **10000**.
+Decimals round on the fifth fractional digit, halfway away from zero. Multiply,
+divide, and interpolation round halfway away from zero after each operation.
+All constants, bars, intermediate values and results must remain within
+**±10000 real units**. Overflow/domain violations refuse the whole request;
+there is no saturation, partial table, skipped sample or model-generated number.
+Bounds make every product fit int64; no float, libm or int128 is used.
+
+ASTs are postorder, at most 32 nodes and depth 8 (including leaves). Parser
+nesting also has a depth ceiling of 8. Ranges stay within ±100, plots use 2..129
+inclusive endpoint samples, tables use 1..16 consecutive integer arguments,
+and lists contain 1..16 bars. Powers require an integer exponent in [-8,8] at
+every sample, including variable exponents such as `2^n`. `0^0` is 1; negative
+powers evaluate the bounded positive power first, then its reciprocal.
+Division by zero and square roots of negative values refuse the request.
+
+Sine uses integer radians: period 62832, half period 31416 and quarter period
+15708. Reduce to [-15708,15708]; start `term=sum=x`, then for i=1..5 set
+`term=-round(term*x*x/(10000^2*(2*i)*(2*i+1)))` and add it to sum.
+Cosine shifts by 15708. Square root computes the nearest integer to
+`sqrt(value*10000)` by integer binary search, resolving ties upward.
+Python/C/ARM9 use identical integer operations; their sample and framebuffer
+parity tolerance is **zero**. Trig is an approximation, not exact real analysis;
+error against libm is tested below 0.0005 on the authored [-100,100] sweep.
+
 ## Equality and tolerances
 
 1. **Fast versus scalar:** exact Q16.16 logits, argmax, saturation counts and

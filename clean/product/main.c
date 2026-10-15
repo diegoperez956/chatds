@@ -37,6 +37,8 @@ static int published, publication_failed;
 static char current_question[CDS_QUESTION_MAX + 1];
 static void (*stream_piece)(void *, uint32_t, const char *, int);
 #ifdef ARM9
+static chatds_ui ui;
+static uint16_t *screen_top, *screen_bottom;
 extern unsigned char __sbss_end[], __sp_usr[];
 #define STACK_PAINT 0xc14c14aau
 static uintptr_t stack_base, stack_top, initial_sp;
@@ -137,6 +139,10 @@ static int begin(void *ctx, const char *question) {
     strcpy(current_question, question);
     answer_text[0] = 0;
     int bad = config.instruct ? c14_begin(&runtime, question) : generator.gen.begin(generator.gen.ctx, question);
+#ifdef ARM9
+    if (!bad && runtime.mathnb_active && screen_top)
+        mnb_render(&runtime.mathnb, &runtime.mathnb_values, screen_top);
+#endif
     sample();
     if (bad) publish(0);
     return bad;
@@ -250,8 +256,6 @@ static int card_session(void) {
     if (out) { bad = session_input(in, out); fprintf(out, "status=%s\n", bad ? "FAIL" : "OK"); fclose(out); }
     fclose(in); return 1;
 }
-static chatds_ui ui;
-static uint16_t *screen_top, *screen_bottom;
 static FILE *frame_index;
 static unsigned frame_count, script_frames;
 static int capture_error;
@@ -272,6 +276,8 @@ static void script_tick(void *ctx) {
     /* The UI demo driver normally installs a frame clock; the product keeps
      * real bus-clock milliseconds even while its input is scripted. */
     if (!script_frames) chatds_ui_set_clock(&ui, chatds_ui_millis, NULL);
+    if (runtime.mathnb_active && !chatds_ui_is_about(&ui))
+        mnb_render(&runtime.mathnb, &runtime.mathnb_values, screen_top);
     if (script_frames++ % 12 == 0 && frame_count < 64) {
         char name[16];
         snprintf(name, sizeof name, "f%03u", frame_count++);
@@ -298,13 +304,18 @@ static void script_dump(void *ctx, const char *name, chatds_ui *state) {
 static int run_script(void) {
     FILE *f = fopen("fat:/chatds/ui-script.txt", "rb");
     if (!f) return 0;
-    /* Optional test instrumentation, not an 8 KiB permanent production BSS
-     * reservation. The normal card has no ui-script.txt. */
-    char *script = malloc(8192);
+    /* Optional instrumentation: bound at 8191 bytes, but allocate only
+     * the actual script. Small captures must not burn an artificial 8 KiB. */
+    long script_size;
+    if (fseek(f, 0, SEEK_END) || (script_size = ftell(f)) < 0 ||
+        script_size > 8191 || fseek(f, 0, SEEK_SET)) {
+        fclose(f); capture_error = 1; return 1;
+    }
+    char *script = malloc((size_t)script_size + 1);
     if (!script) { fclose(f); capture_error = 1; return 1; }
-    size_t n = fread(script, 1, 8191, f);
+    size_t n = fread(script, 1, (size_t)script_size, f);
     script[n] = 0;
-    int bad = ferror(f) || fgetc(f) != EOF;
+    int bad = n != (size_t)script_size || ferror(f) || fgetc(f) != EOF;
     fclose(f);
     frame_index = fopen("fat:/chatds/frames.txt", "w");
     if (!frame_index) bad = 1;
@@ -355,7 +366,9 @@ static void interactive(void) {
             in.touch = 1; in.x = (uint8_t)t.px; in.y = (uint8_t)t.py;
         }
         chatds_ui_frame(&ui, &in);
-        chatds_ui_render(&ui, top, bottom);
+        int redrawn = chatds_ui_render(&ui, top, bottom);
+        if (redrawn && runtime.mathnb_active && !chatds_ui_is_about(&ui))
+            mnb_render(&runtime.mathnb, &runtime.mathnb_values, top);
     }
 }
 #endif
@@ -441,6 +454,14 @@ int main(int argc, char **argv) {
     if (config.instruct && c24_models_init(session, learned_directory)) {
         fprintf(stderr, "invalid round3 models or insufficient fallback workspace\n"); goto fail;
     }
+#ifdef ARM9
+    /* Refuse this prototype ROM if the established 3.5 MiB RAM ceiling
+     * or the allocator leaves less than 64 KiB after resident initialization. */
+    if ((uintptr_t)getHeapEnd() + 65536u > 0x02380000u ||
+        (uintptr_t)getHeapEnd() + 65536u > (uintptr_t)getHeapLimit()) {
+        fprintf(stderr, "mathnb: insufficient RAM margin\n"); goto fail;
+    }
+#endif
     stream_piece = generator.opts.on_piece;
     generator.opts.on_piece = observed_piece;
     generator.opts.out_ids = output_ids;

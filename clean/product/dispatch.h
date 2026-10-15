@@ -5,6 +5,7 @@
 #include "kb4.h"
 #include "prestep.h"
 #include "rules.h"
+#include "mathnb.h"
 /* Owns session dialogue, not model KV (KV resets per transformer question).
  * Fixed buffers; calls serialized. No owned heap requests after initialization;
  * c24 card-head views borrow idle main-RAM KV values until generator reset. */
@@ -22,6 +23,9 @@ typedef struct {
     int learned_act, learned_text;
     int32_t act_margin, op_margin, tag_margin;
     size_t shown;
+    mnb_spec mathnb;
+    mnb_values mathnb_values;
+    int mathnb_active;
 } c14_runtime;
 int c14_open(c14_runtime *r, chatds_ui_engine_gen *g, const char *kb4_path);
 void c14_close(c14_runtime *r);

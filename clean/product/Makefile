@@ -5,7 +5,7 @@ export BLOCKSDS ?= $(WONDERFUL_TOOLCHAIN)/thirdparty/blocksds/core
 PREFIX ?= $(WONDERFUL_TOOLCHAIN)/toolchain/gcc-arm-none-eabi/bin/arm-none-eabi-
 BUILD := build
 CORE := ../src/format.c ../src/kernels.c ../src/engine.c
-PLUMBING := $(addprefix ../plumbing/,calc.c generate.c io.c kb.c retrieve.c kb4.c retrieve4.c entres_index.c prestep.c textops.c router.c round3.c)
+PLUMBING := $(addprefix ../plumbing/,calc.c mathnb.c mathnb_render.c generate.c io.c kb.c retrieve.c kb4.c retrieve4.c entres_index.c prestep.c textops.c router.c round3.c)
 UI := $(wildcard ../ui/src/*.c) ../ui/adapter/ui_engine_gen.c ../ui/shell/ui_script.c
 SOURCES := main.c dispatch.c rules.c learned.c ../../ds/tokenizer/tok.c $(CORE) $(PLUMBING) $(UI)
 HEADERS := $(wildcard *.h ../include/*.h ../src/*.h ../plumbing/*.h ../ui/include/*.h ../ui/src/*.h ../../ds/tokenizer/*.h)
@@ -32,7 +32,7 @@ endef
 $(foreach src,$(SOURCES),$(eval $(call COMPILE,$(src))))
 # Size tuning is restricted to fallback integration/execution modules. Engine,
 # retrieval, existing rule/prestep arithmetic, and UI keep their shipped flags.
-SIZE_MODULES := dispatch learned router round3 textops
+SIZE_MODULES := dispatch learned router round3 textops mathnb mathnb_render
 $(addprefix $(BUILD)/nds/,$(addsuffix .o,$(SIZE_MODULES))): MODULE_FLAGS := -Os -mthumb
 $(BUILD)/chatds-host: $(HOST_OBJS) | $(BUILD)
 	$(CC) $^ -Wl,-Map,$(BUILD)/chatds-host.map -lm -o $@
