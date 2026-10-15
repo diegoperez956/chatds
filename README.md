@@ -2,15 +2,16 @@
 
 chatds runs a tiny chat model on a nintendo ds lite. no network, phone or pc.
 type on the touchscreen; the 67 MHz ARM9 looks up facts on the SD card,
-evaluates `calc(...)` calls and writes short python or shell snippets.
+evaluates `calc(...)` calls, draws small math plots and writes short python or
+shell snippets.
 the current model has 2.75 million parameters. it gets things wrong a lot.
 
-the current product is c24: rules, a calculator parser, text operations and
-ranked KB4 fact lookup answer first, two small learned fallbacks catch
-conversation and text requests the rules miss, and the model only fills the
-gaps. c24 is emulator-tested only; the previous build, c14, ran on a real DS
-through a DSpico flashcart. [c24 details, scores and gates](docs/PRODUCT-C24.md),
-[c14](docs/PRODUCT-C14.md).
+the current product is c24: rules, a calculator parser, a pocket math notebook,
+text operations and ranked KB4 fact lookup answer first, two small learned
+fallbacks catch conversation and text requests the rules miss, and the model
+only fills the gaps. the current c24 ROM (sha256 `4a6ee86e…20e1`) ran on a real
+DS; the previous build, c14, ran on a real DS through a DSpico flashcart.
+[c24 details, scores and gates](docs/PRODUCT-C24.md), [c14](docs/PRODUCT-C14.md).
 
 ![chatds answering a capital question and calculating 38 times 47](docs/demo.gif)
 
@@ -38,23 +39,19 @@ not generated tokens divided by the whole run. largest main-RAM heap-break
 proxy: **3,653,632 bytes**. this is not a stack or live-allocation peak.
 [method, binary hashes and raw results](docs/ENGINE-BENCHMARK.md).
 
-## download the pretrained kit
+## get the c24 kit
 
-**you do not need to train a model to use the kit.** download
-`chatds-v0.1.0-sdcard.zip` from the
-[v0.1.0 release](https://github.com/papayuh/chatds/releases/tag/v0.1.0).
+**No c24 release download is published. Build the kit with
+`ds/hwkit/make-kit.sh`**; see [build from source](#build-from-source) below.
+The script builds the current ROM and stages its three learned heads.
 
-1. extract the ZIP on your Windows, Mac or Linux PC. do not copy the ZIP itself
-   to the DS; the loader uses the extracted, uncompressed files.
-2. back up the flashcart card, then copy `chatds.nds` and the `chatds/` directory
-   to its root. keep the kit's `LICENSE`, `THIRD_PARTY_NOTICES.md`, `licenses/`
-   and `README.txt` with the files. do not replace the cart bootloader/firmware.
-3. eject cleanly and launch `chatds.nds` on your DS lite's DLDI flashcart.
-
-included: the clean ROM, 2,986,240-byte resident DSQ8 model, its matching
-2048-token runtime tokenizer, and the 42,321,808-byte KB3 fact index. the weights
-barely compress (about **5%**); ZIP mainly saves space on the fact index.
-ZIP extraction needs no special tool on current Windows/macOS.
+Training is optional. The [historical v0.1.0 release](https://github.com/papayuh/chatds/releases/tag/v0.1.0)
+provides `chatds-v0.1.0-sdcard.zip`: its matching 2,986,240-byte DSQ8 model and
+2048-token runtime tokenizer can be reused as build inputs. **Its ROM is not
+c24 (or c14)**, and its 42,321,808-byte KB3 index is not KB4. Extract the ZIP
+before using its assets; do not copy the ZIP itself to a card. For ranked KB4
+retrieval, build an index with `corpus/kb/build_kb4.py` and package it with
+`--kb4` and its attribution.
 
 **training runs on a PC with PyTorch, usually a GPU—not on the DS.** the DS
 only runs inference. training your own model is optional; see [train/](train/README.md).
@@ -66,8 +63,8 @@ identify further changes and share adapted text under the same or a permitted
 compatible license. the kit includes separate MIT model/tokenizer and linked
 runtime notices. the v0.1.0 kit ROM itself has not been run on a physical DS
 lite/DSpico; it passed host/melonDS smoke tests, not hardware certification.
-the newer c14 ROM has run on a real DS but is not in that release; building its
-kit needs a KB4 index from `corpus/kb/build_kb4.py`.
+c14 and the current c24 ROM ran on a real DS but are not in that release;
+use the source-built c24 kit, not the historical release ROM.
 
 ## build from source
 
@@ -82,21 +79,22 @@ make host                      # clean/product/build/chatds-host
 ```
 
 binaries and full datasets are not committed to the source tree. use the
-pretrained kit's `chatds/model.bin`, `chatds/tok.bin`, `chatds/kb.bin` and
-`chatds/kb-ATTRIBUTION.txt` in the packaging command below, or supply your own
-compatible licensed assets. model shape is read from the file, not baked into
-the ROM. unsupported layouts, mismatched vocabulary sizes and malformed files
-are refused.
+historical kit's `chatds/model.bin` and `chatds/tok.bin` plus a KB4 index and
+its `ATTRIBUTION.txt` from `corpus/kb/build_kb4.py` in the packaging command
+below, or supply your own compatible licensed assets. model shape is read from
+the file, not baked into the ROM. unsupported layouts, mismatched vocabulary
+sizes and malformed files are refused.
 
 ```sh
 bash ds/hwkit/make-kit.sh --mode assistant \
   --model path/to/model.bin --tokenizer path/to/tok.bin \
-  --kb path/to/kb.bin --kb-attribution path/to/ATTRIBUTION.txt \
+  --kb4 path/to/kb4.bin --kb-attribution path/to/ATTRIBUTION.txt \
   --prompt 'whats 38 times 47' --out build/chatds-kit
 ```
 
-omit both KB options to run without fact retrieval; `--kb4` stages a KB4 index
-instead of `--kb`. packaging stages files; it never writes a physical card.
+omit both KB options to run without fact retrieval; `--kb` stages a legacy KB3
+index instead of `--kb4`. the notebook is in the ROM and needs no card files.
+packaging stages files; it never writes a physical card.
 `ds/hwkit/smoke-test.sh` expects transformer-only answers, so it is not a c14/c24
 validator; see [kit testing](ds/hwkit/README.md#testing).
 
@@ -117,9 +115,40 @@ python3 ds/tokenizer/tokbin.py build/my-tokenizer.model build/tok.bin
 this trains a **new** tokenizer, not the tokenizer used by existing weights.
 train your model with that exact `.model`, or obtain a matching licensed
 tokenizer from your weight provider. matching vocabulary sizes alone is not
-enough. [training instructions](train/README.md) describe checkpoint training;
-a device-format converter is not included. host tests generate small synthetic
+enough. [training instructions](train/README.md) describe checkpoint training and the
+standalone clean-room DSQ8 exporter. host tests generate small synthetic
 tokenizers locally and need no pretrained assets.
+
+## train -> export -> host check -> melonDS
+
+Train with the exact tokenizer used for your shards/checkpoint; see
+[train/](train/README.md) for the optional trainer dependencies. Export trusted
+float checkpoints on CPU, then smoke-test the clean host before emulation:
+
+```sh
+python3 train/train_instruct.py --data_dir=path/to/shards --out_dir=build/training \
+  --device=cpu --compile=False
+python3 train/export_dsq8.py --ckpt build/training/ckpt.pt \
+  --tok build/tok.bin --tok-model build/tokenizer.model --out build/model.bin
+make -j2 host
+mkdir -p build/export-host
+printf 'steps=8\nkbd=0\ninstruct=0\nprompt=Once upon a time\n' > build/export-run.txt
+clean/product/build/chatds-host build/model.bin build/tok.bin - \
+  build/export-run.txt build/export-host/
+make -j2
+QT_QPA_PLATFORM=offscreen python3 tools/engine_golden.py run \
+  --rom clean/product/build/chatds.nds --model build/model.bin --tokenizer build/tok.bin \
+  --question 'Once upon a time' --no-instruct --steps 8 \
+  --work build/export-melon --timeout 120 --output build/export-melon/result.json
+```
+
+Use a fresh emulator work directory, verify no window/display connection, and
+skip emulation if headless operation cannot be verified. These are transformer
+smokes, not quality or c24 parity gates. The exporter needs only PyTorch/NumPy,
+not upstream converter code; its hash sidecar pins the emitted model/tokenizer.
+`python3 -m pytest -q train/test_export_dsq8.py` runs synthetic export/clean-engine
+checks without checkpoints or large binaries in git. Package validated assets
+with `ds/hwkit/make-kit.sh` for c24; see [kit testing](ds/hwkit/README.md#testing).
 
 ## run
 
@@ -137,6 +166,17 @@ results go to `chatds/out.txt`, `ids.txt`, `ctx.txt`, `calc.txt` and `heap.txt`.
 `status=OK` means inference and file writes completed, not that the answer is
 correct. python and shell answers are text, never executed. see
 [kit/emulator setup](ds/hwkit/README.md) for melonDS use.
+
+## pocket math notebook
+
+after the calculator declines, short plot, bar and table requests draw on the
+top screen without the model: `graph sin x`, `plot x squared from -5 to 5`,
+`show bars for 3, 8, 2, 6`, `table of 2^n for n 1 to 8`. plots default to
+-5..5. it uses integer math (four decimal places, ±10000), ranges within ±100,
+2..129 points, 1..16 bars or table rows and expressions of at most 32 nodes.
+requests over those bounds get a polite refusal; prose such as
+`plot 2001 a space odyssey` falls through to the normal pipeline.
+[arithmetic contract](clean/ARITHMETIC.md#pocket-math-notebook-prototype).
 
 ## test and develop
 
@@ -159,8 +199,8 @@ report missing MIT training dependencies rather than silently claiming coverage.
 facts can retrieve the wrong article. names get garbled; answers can be invented.
 the product retains 31/33 frozen compatibility behaviors, including five clean
 oversized-input rejections. two numerical differences have exact pinned outputs;
-[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14 has run on a real DS, but no
-physical DS timing or stack-canary run has been recorded.
+[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14 and the current c24 ROM have
+run on a real DS, but no physical DS timing or stack-canary run has been recorded.
 
 ChatDS code is MIT-licensed; see [LICENSE](LICENSE). the owner also releases the
 kit's trained model and runtime tokenizer under MIT; see its

@@ -20,9 +20,11 @@ tokens; story, 200 new tokens. `--steps` accepts 1..256.
 `--kb-attribution`; `corpus/kb/build_kb4.py` writes `ATTRIBUTION.txt` beside `kb4.bin`.
 Assistant kits also stage the three pinned round3 CDSR heads from
 `campaign/router/models/`. Missing/corrupt heads fail closed, not back to c14.
-Story kits do not need them. Fallbacks borrow 49,448 bytes of idle main-RAM KV
-values; insufficient workspace fails startup. Generator reset clears those bytes
-before every prefill. Context and KV precision are unchanged; no additional
+Story kits do not need them. Heads load lazily after eligibility checks and
+remain validated across deterministic turns; bad files fail when needed.
+Fallbacks borrow 49,448 bytes of idle main-RAM KV values; insufficient workspace
+fails startup. Dispatch invalidates cached views before generator reset clears
+those bytes for prefill. Context and KV precision are unchanged; no additional
 primary model/scratch heap allocation. The host product reads the heads from the
 model's directory, or from `CHATDS_ROUND3_DIR` (trailing slash) when set.
 KB4 takes precedence on the card. Only an absent `kb4.bin` permits KB3 fallback;

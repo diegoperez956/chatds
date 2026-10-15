@@ -17,6 +17,7 @@ typedef struct {
 /* Caller MUST try rules/prestep first, and pass rules_fired for explicit task
  * routes (text/calc/python/shell/fact) or existing conversation/dialogue acts.
  * Return act id, 0 decline. Never infer dialogue state; caller executes repair. */
+int cds_round3_act_eligible(const char *q);
 int cds_round3_act(const cds_round3 *r, cds_router_work *work, const char *q,
                   int rules_fired, int32_t *margin);
 /* Caller MUST try guarded textops regex first and pass original user bytes,
@@ -24,4 +25,11 @@ int cds_round3_act(const cds_round3 *r, cds_router_work *work, const char *q,
  * int8 op + contiguous token-tag span, never rewritten arguments. */
 int cds_round3_textop(const cds_round3 *r, cds_router_work *work, const char *q,
                      cds_round3_text *result, char *out, size_t cap);
+/* Lazy loader seam: called for op (1) after cheap eligibility checks and tag
+ * (2) only after op acceptance. Nonzero loader result returns -1, fail closed.
+ * Preloaded callers keep using cds_round3_textop with no callback. */
+typedef int (*cds_round3_load_head)(void *ctx, int head);
+int cds_round3_textop_lazy(const cds_round3 *r, cds_router_work *work, const char *q,
+                          cds_round3_text *result, char *out, size_t cap,
+                          cds_round3_load_head ensure, void *ctx);
 #endif

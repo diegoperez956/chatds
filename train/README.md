@@ -22,8 +22,24 @@ Do not load untrusted PyTorch checkpoints.
 
 `retain-checkpoints.py`, `select-checkpoint.py` and `soup_ckpt.py` handle local
 checkpoint selection. `qat4.py` is experimental fake-quant math; the product
-supports DSQ8, not DSQ4. No device-format converter, capacity planner or
-end-to-end training campaign wrapper is shipped. Training can produce float
-checkpoints, but converting new weights to DSQ8 needs an independently licensed
-exporter. Existing compatible DSQ8 assets can be evaluated with
-`eval/run_eval.py` and packaged with `ds/hwkit/make-kit.sh`.
+supports DSQ8, not DSQ4. `export_dsq8.py` is the standalone MIT clean-room
+float-checkpoint -> resident DSQ8 converter; it requires only PyTorch and NumPy,
+not the optional upstream trainer/converter modules. It runs on CPU and emits
+`model.bin` plus a `.json` model/runtime-tokenizer SHA256 sidecar.
+
+```sh
+python3 train/export_dsq8.py --ckpt build/training/ckpt.pt \
+  --tok build/tok.bin --tok-model build/tokenizer.model --out build/model.bin
+python3 -m pytest -q train/test_export_dsq8.py
+```
+
+Use trusted checkpoints only. `--tok-model` checks the tokenizer fingerprint
+recorded by training; `--expect-tok-sha256` additionally pins `tok.bin`. Shared
+embedding/classifier weights, loader-supported dimensions and group sizes are
+required. See [export provenance](EXPORT-PROVENANCE.md) and the root README's
+[train -> export -> host -> melonDS workflow](../README.md#train---export---host-check---melonds).
+Synthetic tests need no private files; release byte-parity testing is opt-in
+through the three `CHATDS_EXPORT_*` paths documented in the test file.
+No capacity planner or end-to-end training campaign wrapper is shipped.
+Compatible DSQ8 assets can be evaluated with `eval/run_eval.py` and packaged
+with `ds/hwkit/make-kit.sh`. Keep checkpoints and binary assets out of git.

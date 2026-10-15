@@ -21,7 +21,9 @@
 static chatds_model *model;
 static chatds_session *session;
 static tok_t tokenizer;
-static cds_kb kb;
+/* KB3 compatibility is never live with KB4 retrieval/resolution. Borrow
+ * that typed union member for the entire legacy-reader lifetime. */
+static cds_kb *kb;
 static cds_config config;
 static cds_tokenizer tok;
 static chatds_ui_engine_gen generator;
@@ -37,6 +39,8 @@ static int published, publication_failed;
 static char current_question[CDS_QUESTION_MAX + 1];
 static void (*stream_piece)(void *, uint32_t, const char *, int);
 #ifdef ARM9
+static chatds_ui ui;
+static uint16_t *screen_top, *screen_bottom;
 extern unsigned char __sbss_end[], __sp_usr[];
 #define STACK_PAINT 0xc14c14aau
 static uintptr_t stack_base, stack_top, initial_sp;
@@ -118,7 +122,7 @@ static void publish(int ok) {
 #endif
     cds_result result = {&generator.answer, answer_text, output_ids,
         (uint32_t)(elapsed * 1000 / 33513982), ok, config.instruct, session,
-        chatds_model_memory_bytes(model), extra, kb.f ? &kb : NULL,
+        chatds_model_memory_bytes(model), extra, kb && kb->f ? kb : NULL,
         config.instruct ? NULL : current_question};
     publication_failed = config.instruct && runtime.g && c14_log(&runtime, directory) != 0;
     publication_failed |= cds_publish(directory, &result) != 0;
@@ -137,6 +141,10 @@ static int begin(void *ctx, const char *question) {
     strcpy(current_question, question);
     answer_text[0] = 0;
     int bad = config.instruct ? c14_begin(&runtime, question) : generator.gen.begin(generator.gen.ctx, question);
+#ifdef ARM9
+    if (!bad && runtime.mathnb_active && screen_top)
+        mnb_render(&runtime.mathnb, &runtime.mathnb_values, screen_top);
+#endif
     sample();
     if (bad) publish(0);
     return bad;
@@ -250,8 +258,6 @@ static int card_session(void) {
     if (out) { bad = session_input(in, out); fprintf(out, "status=%s\n", bad ? "FAIL" : "OK"); fclose(out); }
     fclose(in); return 1;
 }
-static chatds_ui ui;
-static uint16_t *screen_top, *screen_bottom;
 static FILE *frame_index;
 static unsigned frame_count, script_frames;
 static int capture_error;
@@ -272,6 +278,8 @@ static void script_tick(void *ctx) {
     /* The UI demo driver normally installs a frame clock; the product keeps
      * real bus-clock milliseconds even while its input is scripted. */
     if (!script_frames) chatds_ui_set_clock(&ui, chatds_ui_millis, NULL);
+    if (runtime.mathnb_active && !chatds_ui_is_about(&ui))
+        mnb_render(&runtime.mathnb, &runtime.mathnb_values, screen_top);
     if (script_frames++ % 12 == 0 && frame_count < 64) {
         char name[16];
         snprintf(name, sizeof name, "f%03u", frame_count++);
@@ -298,13 +306,18 @@ static void script_dump(void *ctx, const char *name, chatds_ui *state) {
 static int run_script(void) {
     FILE *f = fopen("fat:/chatds/ui-script.txt", "rb");
     if (!f) return 0;
-    /* Optional test instrumentation, not an 8 KiB permanent production BSS
-     * reservation. The normal card has no ui-script.txt. */
-    char *script = malloc(8192);
+    /* Optional instrumentation: bound at 8191 bytes, but allocate only
+     * the actual script. Small captures must not burn an artificial 8 KiB. */
+    long script_size;
+    if (fseek(f, 0, SEEK_END) || (script_size = ftell(f)) < 0 ||
+        script_size > 8191 || fseek(f, 0, SEEK_SET)) {
+        fclose(f); capture_error = 1; return 1;
+    }
+    char *script = malloc((size_t)script_size + 1);
     if (!script) { fclose(f); capture_error = 1; return 1; }
-    size_t n = fread(script, 1, 8191, f);
+    size_t n = fread(script, 1, (size_t)script_size, f);
     script[n] = 0;
-    int bad = ferror(f) || fgetc(f) != EOF;
+    int bad = n != (size_t)script_size || ferror(f) || fgetc(f) != EOF;
     fclose(f);
     frame_index = fopen("fat:/chatds/frames.txt", "w");
     if (!frame_index) bad = 1;
@@ -355,7 +368,9 @@ static void interactive(void) {
             in.touch = 1; in.x = (uint8_t)t.px; in.y = (uint8_t)t.py;
         }
         chatds_ui_frame(&ui, &in);
-        chatds_ui_render(&ui, top, bottom);
+        int redrawn = chatds_ui_render(&ui, top, bottom);
+        if (redrawn && runtime.mathnb_active && !chatds_ui_is_about(&ui))
+            mnb_render(&runtime.mathnb, &runtime.mathnb_values, top);
     }
 }
 #endif
@@ -423,11 +438,12 @@ int main(int argc, char **argv) {
 #endif
     if (c14_open(&runtime, &generator, kb4_path)) goto fail;
     if (!runtime.kb4.f) {
-        cds_kb_status ks = cds_kb_open(&kb, kb_path);
+        kb = &runtime.scratch.legacy;
+        cds_kb_status ks = cds_kb_open(kb, kb_path);
         if (ks == CDS_KB_BAD) goto fail;
     }
     tok = (cds_tokenizer){encode, piece, &tokenizer};
-    chatds_ui_engine_gen_init(&generator, session, &tok, kb.f ? &kb : NULL,
+    chatds_ui_engine_gen_init(&generator, session, &tok, kb && kb->f ? kb : NULL,
                              config.instruct, prompt_ids, shape->context_length, config.steps);
 #ifdef ARM9
     strcpy(learned_directory, "fat:/chatds/");
@@ -441,6 +457,14 @@ int main(int argc, char **argv) {
     if (config.instruct && c24_models_init(session, learned_directory)) {
         fprintf(stderr, "invalid round3 models or insufficient fallback workspace\n"); goto fail;
     }
+#ifdef ARM9
+    /* Refuse this prototype ROM if the established 3.5 MiB RAM ceiling
+     * or the allocator leaves less than 64 KiB after resident initialization. */
+    if ((uintptr_t)getHeapEnd() + 65536u > 0x02380000u ||
+        (uintptr_t)getHeapEnd() + 65536u > (uintptr_t)getHeapLimit()) {
+        fprintf(stderr, "mathnb: insufficient RAM margin\n"); goto fail;
+    }
+#endif
     stream_piece = generator.opts.on_piece;
     generator.opts.on_piece = observed_piece;
     generator.opts.out_ids = output_ids;
@@ -460,7 +484,7 @@ fail:
     publish(0);
 finish:
     c14_close(&runtime);
-    cds_kb_close(&kb);
+    if (kb) { cds_kb_close(kb); kb = NULL; }
     free(prompt_ids);
     chatds_session_destroy(session);
     chatds_model_destroy(model);

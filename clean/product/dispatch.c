@@ -208,6 +208,17 @@ static int core(c14_runtime *r) {
         r->deterministic = 1; r->dec.handler = H_CALC; copy(r->path, sizeof r->path, "calculator");
         copy(r->g->answer.calc, sizeof r->g->answer.calc, r->g->opts.text); return 0;
     }
+    int notebook = mnb_parse(r->effective, &r->mathnb);
+    if (notebook) {
+        r->mathnb_active = notebook > 0 && mnb_evaluate(&r->mathnb, &r->mathnb_values);
+        if (r->mathnb_active)
+            snprintf(r->g->opts.text, r->g->opts.text_cap, "Pocket math: %s (%u points).",
+                     r->mathnb.kind == MNB_PLOT ? "plot" : r->mathnb.kind == MNB_BAR ? "bars" : "table",
+                     r->mathnb.points);
+        else copy(r->g->opts.text, r->g->opts.text_cap, MNB_REFUSAL);
+        r->deterministic = 1; r->dec.handler = H_MATHNB;
+        copy(r->path, sizeof r->path, "mathnb"); return 0;
+    }
     if (!strcmp(r->effective, r->q)) {
         cds_round3_text result;
         int n = c24_text(r->g->session, r->q, &result, r->g->opts.text, r->g->opts.text_cap);
@@ -249,6 +260,8 @@ static int core(c14_runtime *r) {
         char *sp = strrchr(r->g->answer.ctx, ' '); if (sp) *sp = 0; else r->g->answer.ctx[0] = 0;
         cds_format_prompt(r->effective, r->g->answer.ctx, r->g->answer.prompt, sizeof r->g->answer.prompt);
     }
+    /* Generator reset/forward owns the borrowed KV values from here on. */
+    c24_models_invalidate(r->g->session);
     chatds_status st = cds_gen_begin(&r->g->run, r->g->session, r->g->tok, r->g->answer.prompt, &r->g->opts, &r->g->answer.gen);
     r->g->run.calc = r->g->answer.calc;
     return st == CHATDS_OK ? 0 : -1;
@@ -288,6 +301,7 @@ int c14_begin(c14_runtime *r, const char *question) {
     memset(&r->evidence, 0, sizeof r->evidence); r->evidence.status = CDS4_GATED;
     r->g->opts.text[0] = 0; r->g->cancelled = 0;
     r->style = r->state_row = r->no_style = r->deterministic = r->finalized = 0; r->keep = 1; r->shown = 0;
+    r->mathnb_active = 0;
     r->effective[0] = r->path[0] = r->template_name[0] = 0;
     r->learned_act = r->learned_text = 0; r->act_margin = r->op_margin = r->tag_margin = 0;
     r->dec = (c14_decision){H_CONVERSATION, A_NONE};

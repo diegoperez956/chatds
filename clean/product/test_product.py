@@ -39,7 +39,7 @@ def assets(directory, window=2048):
 
 @pytest.fixture(scope='module')
 def executable():
-    subprocess.run(['make', '-C', HERE, 'host'], check=True)
+    subprocess.run(['make', '-j2', '-C', HERE, 'host'], check=True)
     return HERE / 'build/chatds-host'
 
 
@@ -93,7 +93,7 @@ def test_unwritable_publication_is_not_success(executable, tmp_path):
 
 
 @pytest.mark.parametrize('head', ['act', 'op', 'tag'])
-@pytest.mark.parametrize('failure', ['missing', 'corrupt', 'resigned'])
+@pytest.mark.parametrize('failure', ['missing', 'corrupt', 'truncated', 'resigned'])
 def test_round3_assets_fail_closed(executable, tmp_path, head, failure):
     models = tmp_path / 'models'; models.mkdir()
     for name in ('act', 'op', 'tag'):
@@ -103,14 +103,28 @@ def test_round3_assets_fail_closed(executable, tmp_path, head, failure):
             dest.symlink_to(src)
         elif failure == 'corrupt':
             blob = bytearray(src.read_bytes()); blob[-1] ^= 1; dest.write_bytes(blob)
+        elif failure == 'truncated':
+            dest.write_bytes(src.read_bytes()[:-1])
         elif failure == 'resigned':
             # Internally consistent CDSR (valid body SHA) that is not the committed head.
             blob = bytearray(src.read_bytes()); blob[len(blob) // 2] ^= 1
             blob[20:52] = hashlib.sha256(blob[64:]).digest(); r3.read_head(bytes(blob)); dest.write_bytes(blob)
-    result, out = invoke(executable, tmp_path, 'steps=2\ninstruct=1\nprompt=hello\n', learned_directory=models)
+    # Load the damaged head on demand. Previous product rejected these same
+    # files at startup; the contract stays FAIL + no generated answer/IDs,
+    # never a silently substituted c14/transformer answer.
+    q = 'u good?' if head == 'act' else "put the words of 'castle bridge' in reverse order"
+    result, out = invoke(executable, tmp_path, f'steps=2\ninstruct=1\nprompt={q}\n', learned_directory=models)
     assert result.returncode != 0
     assert (out / 'out.txt').read_text().endswith('status=FAIL\n')
+    assert (out / 'out.txt').read_text().splitlines()[:-6] == ['']
     assert (out / 'ids.txt').read_text() == ''
+
+
+def test_ineligible_turn_needs_no_heads(executable, tmp_path):
+    models = tmp_path / 'empty'; models.mkdir()
+    result, out = invoke(executable, tmp_path, 'steps=2\ninstruct=1\nprompt=2+3\n', learned_directory=models)
+    assert result.returncode == 0, result.stderr
+    assert (out / 'out.txt').read_text().startswith('calc(2+3) = 5\n')
 
 
 def test_round3_thresholds_match_python_twin(executable, tmp_path):
