@@ -6,11 +6,23 @@
 #include <string.h>
 #include "plumbing.h"
 #include "rules.h"
-/* Opcode in a's high 3 bits; relative target in low 13. b = second target
- * or character-class index. Four-byte nodes halve resident rule-table RAM. */
+/* Decoded node: opcode in a's high 3 bits, target in low 13.
+ * Immutable storage uses two bytes per ordinary node, four per split pair.
+ * Decode by value: no shared scratch, unaligned loads or live-data aliases. */
 typedef struct { uint16_t a, b; } rx_node;
 typedef struct { uint16_t offset, start, size; } rx_prog;
 #include "rules_tab.h"
+static rx_node rx_decode(unsigned index) {
+    uint16_t packed = rx_nodes[index];
+    unsigned code = packed >> 10, target = packed & 1023;
+    if (code < 58) return (rx_node){(uint16_t)(8192 | target), (uint16_t)code};
+    if (code == 60) {
+        rx_node split = rx_splits[target];
+        split.a |= 2u << 13;
+        return split;
+    }
+    return (rx_node){(uint16_t)(((code - 58) << 13) | target), 0};
+}
 static unsigned char active[2][RX_MAX];
 static uint16_t queue[RX_MAX];
 static int word(int c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; }
@@ -20,13 +32,13 @@ static void closure(const rx_prog *p, unsigned char *set, int start, const char 
     if (set[start]) return;
     set[start] = 1; queue[n++] = (uint16_t)start;
     while (i < n) {
-        const rx_node *v = &rx_nodes[p->offset + queue[i++]];
-        int op = v->a >> 13, target = v->a & 8191;
+        rx_node v = rx_decode(p->offset + queue[i++]);
+        int op = v.a >> 13, target = v.a & 8191;
         int follow = op == 2 || (op == 3 && pos == 0) || (op == 4 && pos == len) ||
             (op == 5 && (pos > 0 && word((unsigned char)s[pos - 1])) != (pos < len && word((unsigned char)s[pos])));
         if (follow) {
             if (!set[target]) { set[target] = 1; queue[n++] = (uint16_t)target; }
-            if (op == 2 && !set[v->b]) { set[v->b] = 1; queue[n++] = v->b; }
+            if (op == 2 && !set[v.b]) { set[v.b] = 1; queue[n++] = v.b; }
         }
     }
 }
@@ -41,10 +53,10 @@ static int rx(int id, const char *s) {
         if (pos == len) break;
         memset(active[1 - cur], 0, p->size);
         for (int i = 0; i < p->size; i++) {
-            const rx_node *v = &rx_nodes[p->offset + i];
+            rx_node v = rx_decode(p->offset + i);
             unsigned c = (unsigned char)s[pos];
-            if (active[cur][i] && (v->a >> 13) == 1 && c < 128 && (rx_class[v->b][c / 8] & (1u << (c % 8))))
-                closure(p, active[1 - cur], v->a & 8191, s, pos + 1, len);
+            if (active[cur][i] && (v.a >> 13) == 1 && c < 128 && (rx_class[v.b][c / 8] & (1u << (c % 8))))
+                closure(p, active[1 - cur], v.a & 8191, s, pos + 1, len);
         }
         cur = 1 - cur;
     }

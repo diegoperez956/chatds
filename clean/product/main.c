@@ -21,7 +21,9 @@
 static chatds_model *model;
 static chatds_session *session;
 static tok_t tokenizer;
-static cds_kb kb;
+/* KB3 compatibility is never live with KB4. Allocate only on that legacy
+ * path; keep independent owned storage rather than aliasing model/UI data. */
+static cds_kb *kb;
 static cds_config config;
 static cds_tokenizer tok;
 static chatds_ui_engine_gen generator;
@@ -120,7 +122,7 @@ static void publish(int ok) {
 #endif
     cds_result result = {&generator.answer, answer_text, output_ids,
         (uint32_t)(elapsed * 1000 / 33513982), ok, config.instruct, session,
-        chatds_model_memory_bytes(model), extra, kb.f ? &kb : NULL,
+        chatds_model_memory_bytes(model), extra, kb && kb->f ? kb : NULL,
         config.instruct ? NULL : current_question};
     publication_failed = config.instruct && runtime.g && c14_log(&runtime, directory) != 0;
     publication_failed |= cds_publish(directory, &result) != 0;
@@ -436,11 +438,13 @@ int main(int argc, char **argv) {
 #endif
     if (c14_open(&runtime, &generator, kb4_path)) goto fail;
     if (!runtime.kb4.f) {
-        cds_kb_status ks = cds_kb_open(&kb, kb_path);
+        kb = calloc(1, sizeof *kb);
+        if (!kb) goto fail;
+        cds_kb_status ks = cds_kb_open(kb, kb_path);
         if (ks == CDS_KB_BAD) goto fail;
     }
     tok = (cds_tokenizer){encode, piece, &tokenizer};
-    chatds_ui_engine_gen_init(&generator, session, &tok, kb.f ? &kb : NULL,
+    chatds_ui_engine_gen_init(&generator, session, &tok, kb && kb->f ? kb : NULL,
                              config.instruct, prompt_ids, shape->context_length, config.steps);
 #ifdef ARM9
     strcpy(learned_directory, "fat:/chatds/");
@@ -481,7 +485,7 @@ fail:
     publish(0);
 finish:
     c14_close(&runtime);
-    cds_kb_close(&kb);
+    if (kb) { cds_kb_close(kb); free(kb); kb = NULL; }
     free(prompt_ids);
     chatds_session_destroy(session);
     chatds_model_destroy(model);
