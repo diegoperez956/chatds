@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""Lossless table decoding and independently owned lazy KB3 storage.
+"""Lossless table decoding and lifetime-disjoint KB3/KB4 scratch storage.
 
 All probes use ASan/UBSan. No release assets or private evaluation fixtures.
 """
@@ -108,46 +108,64 @@ def sanitized_product(tmp_path_factory):
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-static void *tracked_calloc(size_t n, size_t size);
-static void tracked_free(void *p);
-#define calloc tracked_calloc
-#define free tracked_free
+#include "dispatch.h"
+static cds_kb_status tracked_open(cds_kb *p, const char *path);
+static void tracked_close(cds_kb *p);
+static int tracked_begin(c14_runtime *r, const char *q);
+#define cds_kb_open tracked_open
+#define cds_kb_close tracked_close
+#define c14_begin tracked_begin
 #define main product_main
 #include "main.c"
-#undef calloc
-#undef free
+#undef cds_kb_open
+#undef cds_kb_close
+#undef c14_begin
 #undef main
-static void *legacy;
-static unsigned allocations, releases;
+static cds_kb *legacy;
+static cds_kb shadow;
+static unsigned opens, closes;
+static int preserve;
 static void disjoint(const void *p, size_t size, const void *q, size_t other) {
     uintptr_t a = (uintptr_t)p, b = (uintptr_t)q;
     assert(a + size <= b || b + other <= a);
 }
-static void *tracked_calloc(size_t n, size_t size) {
-    void *p = calloc(n, size);
-    if (p && n * size == sizeof(cds_kb)) {
-        assert(!legacy);
-        legacy = p; ++allocations;
-        disjoint(p, sizeof(cds_kb), &runtime, sizeof runtime);
-        disjoint(p, sizeof(cds_kb), &generator, sizeof generator);
-        disjoint(p, sizeof(cds_kb), answer_text, sizeof answer_text);
-        disjoint(p, sizeof(cds_kb), output_ids, sizeof output_ids);
-    }
-    return p;
+static cds_kb_status tracked_open(cds_kb *p, const char *path) {
+    assert(!legacy && !runtime.kb4.f && p == &runtime.scratch.legacy);
+    legacy = p; ++opens;
+    disjoint(p, sizeof *p, &runtime.kb4, sizeof runtime.kb4);
+    disjoint(p, sizeof *p, &runtime.mathnb, sizeof runtime.mathnb);
+    disjoint(p, sizeof *p, &runtime.mathnb_values, sizeof runtime.mathnb_values);
+    disjoint(p, sizeof *p, &generator, sizeof generator);
+    disjoint(p, sizeof *p, answer_text, sizeof answer_text);
+    disjoint(p, sizeof *p, output_ids, sizeof output_ids);
+    /* Poison the full arena before reader initialization. The reader must
+     * initialize all state itself, not depend on prior KB4 scratch bytes. */
+    memset(p, 0xa5, sizeof *p);
+    return cds_kb_open(p, path);
 }
-static void tracked_free(void *p) {
-    if (p && p == legacy) {
-        /* Close already completed. Poison on release; ASan catches any later
-         * legacy-reader access or a dangling generator/publication alias. */
-        memset(p, 0xa5, sizeof(cds_kb)); legacy = NULL; ++releases;
+static int tracked_begin(c14_runtime *r, const char *q) {
+    if (!legacy && r->kb4.f) memset(&r->scratch, 0xa5, sizeof r->scratch);
+    if (legacy) {
+        assert(!r->kb4.f);
+        if (preserve) assert(!memcmp(legacy, &shadow, sizeof shadow));
+        memcpy(&shadow, legacy, sizeof shadow);
     }
-    free(p);
+    int rc = c14_begin(r, q);
+    preserve = legacy && (!strncmp(q, "graph ", 6) || !strcmp(q, "what is 2+3") || !strncmp(q, "python ", 7));
+    if (preserve) assert(!memcmp(legacy, &shadow, sizeof shadow));
+    return rc;
+}
+static void tracked_close(cds_kb *p) {
+    assert(p == legacy && !runtime.kb4.f);
+    if (preserve) assert(!memcmp(legacy, &shadow, sizeof shadow));
+    cds_kb_close(p);
+    memset(p, 0xa5, sizeof *p); legacy = NULL; ++closes;
 }
 int main(int argc, char **argv) {
     int rc = product_main(argc, argv);
     unsigned expected = (unsigned)atoi(getenv("STACK_EXPECT_KB3"));
-    assert(allocations == expected && releases == expected && !legacy);
-    fprintf(stderr, "KB3 allocations=%u releases=%u; disjoint/poison passed\n", allocations, releases);
+    assert(opens == expected && closes == expected && !legacy);
+    fprintf(stderr, "KB3 opens=%u closes=%u; disjoint/poison passed\n", opens, closes);
     return rc;
 }
 ''')
@@ -170,7 +188,7 @@ int main(int argc, char **argv) {
 
 
 @pytest.mark.parametrize('kind', ['kb4', 'kb3', 'missing', 'corrupt-kb4', 'corrupt-kb3'])
-def test_lazy_kb3_owned_lifetime(sanitized_product, tmp_path, kind, monkeypatch):
+def test_kb3_kb4_disjoint_lifetime(sanitized_product, tmp_path, kind, monkeypatch):
     sys.path.insert(0, str(ROOT/'corpus/kb'))
     import build_kb, build_kb4, kb4_scan
     product = fixture_module(ROOT/'clean/product/test_product.py', 'stack_product_fixture')
@@ -185,10 +203,11 @@ def test_lazy_kb3_owned_lifetime(sanitized_product, tmp_path, kind, monkeypatch)
         kb.write_bytes(b'broken')
     expected = int(kind in ('kb3', 'missing', 'corrupt-kb3'))
     monkeypatch.setenv('STACK_EXPECT_KB3', str(expected))
-    script = 'R\nQ\twhat is paris\nQ\tgraph sin x\nQ\twhat is 2+3\nQ\tpython hello\nQ\twhat is paris\n'
+    fact = 'what years ww2' if kind == 'kb4' else 'what is paris'
+    script = f'R\nQ\t{fact}\nQ\tgraph sin x\nQ\twhat is 2+3\nQ\tpython hello\nQ\t{fact}\n'
     result, _ = product.invoke(sanitized_product, tmp_path,
                               'steps=2\nkbd=0\ninstruct=1\nprompt=hello\n', kb=kb, serve=script)
-    assert f'KB3 allocations={expected} releases={expected}; disjoint/poison passed' in result.stderr
+    assert f'KB3 opens={expected} closes={expected}; disjoint/poison passed' in result.stderr
     assert ('AddressSanitizer' not in result.stderr and 'runtime error:' not in result.stderr)
     if kind.startswith('corrupt'):
         assert result.returncode != 0
@@ -200,3 +219,5 @@ def test_lazy_kb3_owned_lifetime(sanitized_product, tmp_path, kind, monkeypatch)
         assert rows[2][1] == 'calculator'
         if kind == 'kb3':
             assert rows[0][3] and rows[0][3] == rows[4][3]
+        if kind == 'kb4':
+            assert rows[0][1] == rows[4][1] == 'kb_direct'

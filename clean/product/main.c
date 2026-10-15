@@ -21,8 +21,8 @@
 static chatds_model *model;
 static chatds_session *session;
 static tok_t tokenizer;
-/* KB3 compatibility is never live with KB4. Allocate only on that legacy
- * path; keep independent owned storage rather than aliasing model/UI data. */
+/* KB3 compatibility is never live with KB4 retrieval/resolution. Borrow
+ * that typed union member for the entire legacy-reader lifetime. */
 static cds_kb *kb;
 static cds_config config;
 static cds_tokenizer tok;
@@ -438,8 +438,7 @@ int main(int argc, char **argv) {
 #endif
     if (c14_open(&runtime, &generator, kb4_path)) goto fail;
     if (!runtime.kb4.f) {
-        kb = calloc(1, sizeof *kb);
-        if (!kb) goto fail;
+        kb = &runtime.scratch.legacy;
         cds_kb_status ks = cds_kb_open(kb, kb_path);
         if (ks == CDS_KB_BAD) goto fail;
     }
@@ -485,7 +484,7 @@ fail:
     publish(0);
 finish:
     c14_close(&runtime);
-    if (kb) { cds_kb_close(kb); free(kb); kb = NULL; }
+    if (kb) { cds_kb_close(kb); kb = NULL; }
     free(prompt_ids);
     chatds_session_destroy(session);
     chatds_model_destroy(model);

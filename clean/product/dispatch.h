@@ -13,7 +13,9 @@ typedef struct { char title[64], def[112]; } c14_identity;
 typedef struct {
     chatds_ui_engine_gen *g;
     cds4_kb kb4;
-    union { cds4_ctx_storage retrieval; c14_identity identities[12]; } scratch;
+    /* KB4 retrieval/resolution and the legacy KB3 reader are mutually
+     * exclusive for the entire open lifetime. Notebook storage stays separate. */
+    union { cds4_ctx_storage retrieval; c14_identity identities[12]; cds_kb legacy; } scratch;
     cds4_result evidence;
     cds_dlg dlg;
     char q[128], inner[128], effective[128];
