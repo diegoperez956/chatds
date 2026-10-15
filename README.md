@@ -38,23 +38,19 @@ not generated tokens divided by the whole run. largest main-RAM heap-break
 proxy: **3,653,632 bytes**. this is not a stack or live-allocation peak.
 [method, binary hashes and raw results](docs/ENGINE-BENCHMARK.md).
 
-## download the pretrained kit
+## get the c24 kit
 
-**you do not need to train a model to use the kit.** download
-`chatds-v0.1.0-sdcard.zip` from the
-[v0.1.0 release](https://github.com/papayuh/chatds/releases/tag/v0.1.0).
+**No c24 release download is published. Build the kit with
+`ds/hwkit/make-kit.sh`**; see [build from source](#build-from-source) below.
+The script builds the current ROM and stages its three learned heads.
 
-1. extract the ZIP on your Windows, Mac or Linux PC. do not copy the ZIP itself
-   to the DS; the loader uses the extracted, uncompressed files.
-2. back up the flashcart card, then copy `chatds.nds` and the `chatds/` directory
-   to its root. keep the kit's `LICENSE`, `THIRD_PARTY_NOTICES.md`, `licenses/`
-   and `README.txt` with the files. do not replace the cart bootloader/firmware.
-3. eject cleanly and launch `chatds.nds` on your DS lite's DLDI flashcart.
-
-included: the clean ROM, 2,986,240-byte resident DSQ8 model, its matching
-2048-token runtime tokenizer, and the 42,321,808-byte KB3 fact index. the weights
-barely compress (about **5%**); ZIP mainly saves space on the fact index.
-ZIP extraction needs no special tool on current Windows/macOS.
+Training is optional. The [historical v0.1.0 release](https://github.com/papayuh/chatds/releases/tag/v0.1.0)
+provides `chatds-v0.1.0-sdcard.zip`: its matching 2,986,240-byte DSQ8 model and
+2048-token runtime tokenizer can be reused as build inputs. **Its ROM is not
+c24 (or c14)**, and its 42,321,808-byte KB3 index is not KB4. Extract the ZIP
+before using its assets; do not copy the ZIP itself to a card. For ranked KB4
+retrieval, build an index with `corpus/kb/build_kb4.py` and package it with
+`--kb4` and its attribution.
 
 **training runs on a PC with PyTorch, usually a GPU—not on the DS.** the DS
 only runs inference. training your own model is optional; see [train/](train/README.md).
@@ -66,8 +62,8 @@ identify further changes and share adapted text under the same or a permitted
 compatible license. the kit includes separate MIT model/tokenizer and linked
 runtime notices. the v0.1.0 kit ROM itself has not been run on a physical DS
 lite/DSpico; it passed host/melonDS smoke tests, not hardware certification.
-the newer c14 ROM has run on a real DS but is not in that release; building its
-kit needs a KB4 index from `corpus/kb/build_kb4.py`.
+c14 ran on a real DS but is not in that release. c24 is emulator-tested only;
+use the source-built c24 kit, not the historical release ROM.
 
 ## build from source
 
