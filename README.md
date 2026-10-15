@@ -2,15 +2,16 @@
 
 chatds runs a tiny chat model on a nintendo ds lite. no network, phone or pc.
 type on the touchscreen; the 67 MHz ARM9 looks up facts on the SD card,
-evaluates `calc(...)` calls and writes short python or shell snippets.
+evaluates `calc(...)` calls, draws small math plots and writes short python or
+shell snippets.
 the current model has 2.75 million parameters. it gets things wrong a lot.
 
-the current product is c24: rules, a calculator parser, text operations and
-ranked KB4 fact lookup answer first, two small learned fallbacks catch
-conversation and text requests the rules miss, and the model only fills the
-gaps. c24 is emulator-tested only; the previous build, c14, ran on a real DS
-through a DSpico flashcart. [c24 details, scores and gates](docs/PRODUCT-C24.md),
-[c14](docs/PRODUCT-C14.md).
+the current product is c24: rules, a calculator parser, a pocket math notebook,
+text operations and ranked KB4 fact lookup answer first, two small learned
+fallbacks catch conversation and text requests the rules miss, and the model
+only fills the gaps. the current c24 ROM (sha256 `4a6ee86e…20e1`) ran on a real
+DS; the previous build, c14, ran on a real DS through a DSpico flashcart.
+[c24 details, scores and gates](docs/PRODUCT-C24.md), [c14](docs/PRODUCT-C14.md).
 
 ![chatds answering a capital question and calculating 38 times 47](docs/demo.gif)
 
@@ -62,7 +63,7 @@ identify further changes and share adapted text under the same or a permitted
 compatible license. the kit includes separate MIT model/tokenizer and linked
 runtime notices. the v0.1.0 kit ROM itself has not been run on a physical DS
 lite/DSpico; it passed host/melonDS smoke tests, not hardware certification.
-c14 ran on a real DS but is not in that release. c24 is emulator-tested only;
+c14 and the current c24 ROM ran on a real DS but are not in that release;
 use the source-built c24 kit, not the historical release ROM.
 
 ## build from source
@@ -78,21 +79,22 @@ make host                      # clean/product/build/chatds-host
 ```
 
 binaries and full datasets are not committed to the source tree. use the
-pretrained kit's `chatds/model.bin`, `chatds/tok.bin`, `chatds/kb.bin` and
-`chatds/kb-ATTRIBUTION.txt` in the packaging command below, or supply your own
-compatible licensed assets. model shape is read from the file, not baked into
-the ROM. unsupported layouts, mismatched vocabulary sizes and malformed files
-are refused.
+historical kit's `chatds/model.bin` and `chatds/tok.bin` plus a KB4 index and
+its `ATTRIBUTION.txt` from `corpus/kb/build_kb4.py` in the packaging command
+below, or supply your own compatible licensed assets. model shape is read from
+the file, not baked into the ROM. unsupported layouts, mismatched vocabulary
+sizes and malformed files are refused.
 
 ```sh
 bash ds/hwkit/make-kit.sh --mode assistant \
   --model path/to/model.bin --tokenizer path/to/tok.bin \
-  --kb path/to/kb.bin --kb-attribution path/to/ATTRIBUTION.txt \
+  --kb4 path/to/kb4.bin --kb-attribution path/to/ATTRIBUTION.txt \
   --prompt 'whats 38 times 47' --out build/chatds-kit
 ```
 
-omit both KB options to run without fact retrieval; `--kb4` stages a KB4 index
-instead of `--kb`. packaging stages files; it never writes a physical card.
+omit both KB options to run without fact retrieval; `--kb` stages a legacy KB3
+index instead of `--kb4`. the notebook is in the ROM and needs no card files.
+packaging stages files; it never writes a physical card.
 `ds/hwkit/smoke-test.sh` expects transformer-only answers, so it is not a c14/c24
 validator; see [kit testing](ds/hwkit/README.md#testing).
 
@@ -165,6 +167,17 @@ results go to `chatds/out.txt`, `ids.txt`, `ctx.txt`, `calc.txt` and `heap.txt`.
 correct. python and shell answers are text, never executed. see
 [kit/emulator setup](ds/hwkit/README.md) for melonDS use.
 
+## pocket math notebook
+
+after the calculator declines, short plot, bar and table requests draw on the
+top screen without the model: `graph sin x`, `plot x squared from -5 to 5`,
+`show bars for 3, 8, 2, 6`, `table of 2^n for n 1 to 8`. plots default to
+-5..5. it uses integer math (four decimal places, ±10000), ranges within ±100,
+2..129 points, 1..16 bars or table rows and expressions of at most 32 nodes.
+requests over those bounds get a polite refusal; prose such as
+`plot 2001 a space odyssey` falls through to the normal pipeline.
+[arithmetic contract](clean/ARITHMETIC.md#pocket-math-notebook-prototype).
+
 ## test and develop
 
 ```sh
@@ -186,8 +199,8 @@ report missing MIT training dependencies rather than silently claiming coverage.
 facts can retrieve the wrong article. names get garbled; answers can be invented.
 the product retains 31/33 frozen compatibility behaviors, including five clean
 oversized-input rejections. two numerical differences have exact pinned outputs;
-[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14 has run on a real DS, but no
-physical DS timing or stack-canary run has been recorded.
+[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14 and the current c24 ROM have
+run on a real DS, but no physical DS timing or stack-canary run has been recorded.
 
 ChatDS code is MIT-licensed; see [LICENSE](LICENSE). the owner also releases the
 kit's trained model and runtime tokenizer under MIT; see its

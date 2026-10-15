@@ -1,8 +1,13 @@
 # product condition 24 (c24)
 
 c24 is the assistant-mode product: [c14](PRODUCT-C14.md) plus two learned
-fallbacks. **emulator-tested only; not yet run on DS hardware.** c14 is the
-build that ran on a real DS.
+fallbacks, a pocket math notebook and the RAM reclaim that lets both fit.
+**the current ROM, sha256
+`4a6ee86ec91e4806537f393c20767b7a0fe1426fab1ff45ff85a229cee6a20e1`, ran on a
+real Nintendo DS** and felt almost instant, especially on math. that is the only
+c24 ROM tested on hardware; no physical timing was recorded. earlier c24 ROMs,
+including the original `04151f19…132c`, were emulator-tested only. c14 also ran
+on a real DS.
 
 ## what changed from c14
 
@@ -18,6 +23,8 @@ two hashed char+word n-gram int8 models fire only when the c14 rules decline:
 
 act/op/tag Q8 thresholds: 1793/386/0. model, tokenizer, KB4, prompt and
 dialogue reset rules are unchanged. story mode does not load the heads.
+model, tokenizer, KB4 and the three heads are byte-identical to the original
+c24 kit.
 
 `clean/plumbing/router.c` (int8 classifier) and `round3.c` (fallback logic) are
 twins of `campaign/router/round3.py`. `clean/product/learned.c` loads the three
@@ -52,19 +59,37 @@ grader are private and not shipped here.
 
 | file | sha256 |
 |---|---|
-| `chatds.nds` | `04151f196e6af5d088db52aa986d0068cafe081fc087f9cd442c6426081e132c` |
+| `chatds.nds` (current, hardware-tested) | `4a6ee86ec91e4806537f393c20767b7a0fe1426fab1ff45ff85a229cee6a20e1` |
+| `chatds.nds` (original c24) | `04151f196e6af5d088db52aa986d0068cafe081fc087f9cd442c6426081e132c` |
 | `chatds/round3-act.cdsr` | `e46781ffcdbff485f33fcc918dffc5994d3da826241ae54a712befb38a1a7a86` |
 | `chatds/round3-op.cdsr` | `aa825e492e45b537df09150e64915636cba777ca7e9e2ddbaadc2c9e30db5dd1` |
 | `chatds/round3-tag.cdsr` | `6b7bd4db559fd936f1a260a45003da88135e69dc61814b2ec51451ba5cccacf4` |
-| `kit.json` | `5eacc768cc092b980d4424f6ee68b1f4f701d7d11320552b60fc384d949a8892` |
+| `kit.json` (original c24) | `5eacc768cc092b980d4424f6ee68b1f4f701d7d11320552b60fc384d949a8892` |
 
 model, tokenizer and `kb4.bin` are the c14 files. `ds/hwkit/make-kit.sh --kb4
---kb-attribution` from this tree reproduces the original c24 kit: the ROM and
-every manifest entry (including `chatds/kb-ATTRIBUTION.txt`, the three heads and
-the host golden) are byte-identical except `THIRD_PARTY_NOTICES.md`, which now
-also names KB4 and the learned heads; `kit.json` differs only by that hash.
+--kb-attribution` from this tree builds the current ROM above and stages the
+same model, tokenizer, KB4 and heads as the original c24 kit; `kit.json` changes
+with the ROM hash. the notebook needs no extra card files.
 
-## validation (2026-10-13, this tree)
+## notebook + reclaim validation (2026-10-13, current ROM)
+
+- host tests: `python3 tools/run_host_tests.py` 623 passed, 3 skipped (327 before),
+  including 290 notebook tests and the reclaim probes; engine, tokenizer and UI
+  (724 checks) pass. notebook ASan/UBSan: 30,000 malformed query/spec iterations.
+- host product vs c24 reference pipeline: dev-v1 2,236 turns and dev-v2 2,058
+  turns, 0 answer and 0 metadata mismatches.
+- headless melonDS: the same 60-case screen (71 turns), 12-turn stress and a
+  12-turn mixed learned/notebook/transformer/KB/repeat run, ROM vs host 0
+  mismatches. four notebook captures (square, sine, bars, table): ROM top screen
+  byte-identical to the host render, 0 generated tokens.
+- RAM gate: maximum heap-break proxy 3,596,288 B across screen, stress, mixed
+  and notebook runs, margin **73,728 B (72 KiB): PASS** (required >= 64 KiB;
+  notebook before reclaim: 61,440 B, FAIL). minimum user-stack free 6,080 B.
+  melonDS proxies, not physical DS measurements.
+- hardware: the ROM above ran on a real Nintendo DS. no physical timing,
+  RAM or stack measurement was recorded.
+
+## original c24 validation (2026-10-13)
 
 - host tests: `python3 tools/run_host_tests.py` passes. new: round3 C vs Python
   parity on 6,000+ generated requests at deployed and zero thresholds, ASan/UBSan
@@ -93,7 +118,7 @@ emulated per-answer time on the screen: p50 229 ms, p95 12.4 s, max 16.1 s.
 these are melonDS milliseconds, not physical DS time. the dev-set parity, screen
 and memory runs use the private validation harness and eval sets, as for c14.
 
-## lazy-loader validation
+## lazy-loader validation (before the notebook)
 
 Same fixed 60-case screen (71 turns): host == ROM, zero mismatches including
 learned IDs/margins. All dev-v1 (2,236) and dev-v2 (2,058) turns match reference
@@ -113,8 +138,57 @@ Screen peak heap-break proxy stays **3,596,288 B** (72 KiB margin). The same
 6,088 B after the change. Heap break is not live-allocation peak or physical DS
 timing. Context remains 256; no new head-sized allocation.
 
+## pocket math notebook
+
+`clean/plumbing/mathnb.c` parses, `mathnb_render.c` draws. dispatch runs it
+after the calculator declines and before the round3 text fallback. a valid
+request evaluates every sample, answers `Pocket math: plot (129 points).` (or
+bars/table) and draws a 256x192 plot, bar chart or table on the top screen.
+zero model tokens; no heap, card files or learned heads. examples: `graph sin
+x`, `plot x squared from -5 to 5`, `show bars for 3, 8, 2, 6`, `table of 2^n
+for n 1 to 8`.
+
+bounds: at most 127 input characters, 32 AST nodes, depth 8, ranges within
+±100, 2..129 plot points, 1..16 bars or table rows, values within ±10000 at
+four decimal places. leading/trailing prose and unknown words return "not
+mine" and continue the normal pipeline (`plot 2001 a space odyssey`, `table of
+12 for dinner`, `graph x marks the spot`). only an unambiguous notebook request
+over its bounds, or one hitting division by zero, a negative square root or
+overflow, gets the fixed refusal. no partial plots. the integer contract,
+including sine and square root, is in
+[ARITHMETIC.md](../clean/ARITHMETIC.md#pocket-math-notebook-prototype);
+`campaign/pipeline/mathnb.py` is its Python twin.
+
+the notebook does not change c24 dispatch on the dev sets: 0 captures across
+all 4,294 dev-v1/v2 turns, and full parity below still holds against reference
+condition 24.
+
+## RAM reclaim
+
+the notebook alone cost about 7.6 KB static and left a 60 KiB worst margin,
+below the 64 KiB gate. two lossless reclaims bring it back:
+
+- **rule packing, 5,940 B.** `gen_rules.py` packs 4,060 four-byte NFA nodes
+  (16,240 B) into halfwords plus 545 split pairs (10,300 B). same rule graph,
+  decoded by value. `test_ram_reclaim.py` compares every decoded node against the
+  unpacked Thompson graph and runs 6,300 regex searches against Python `re`
+  under ASan/UBSan.
+- **shared KB3/KB4 workspace, 3,068 B net.** the 3,168 B KB3 reader moves into
+  the existing typed KB4 retrieval/resolution union. KB4 presence is decided once
+  at open and never changes; KB3 opens only when `kb4.bin` is absent, and every
+  scratch writer needs an open KB4. KB4 corruption stays fatal, never a KB3
+  fallback. notebook, dialogue, evidence and published state stay outside the
+  union. no new allocation. **any future reopen or card-swap path must
+  re-establish this disjointness.** ASan/UBSan probes of the real product poison
+  both members and check missing/corrupt KB3/KB4 behavior.
+
+net static reclaim 8,896 B. context 256, int16 KV, the 64 KiB gate and the
+model are unchanged. the ROM refuses to boot with less than 64 KiB left after
+resident initialization.
+
 ## memory
 
+current main-RAM static end 323,004 B (notebook before reclaim: 331,900 B).
 Original c24 main-RAM static end 323,532 B (c14: 328,940 B): dispatch, learned loader, router,
 round3 and textops build with `-Os -mthumb`; engine, retrieval, rules, prestep
 and UI keep their flags. model arena, session heap, context 256 and int16 KV are
