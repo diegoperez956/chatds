@@ -115,10 +115,31 @@ timing. Context remains 256; no new head-sized allocation.
 
 ## memory
 
-main-RAM static end 323,532 B (c14: 328,940 B): dispatch, learned loader, router,
+Original c24 main-RAM static end 323,532 B (c14: 328,940 B): dispatch, learned loader, router,
 round3 and textops build with `-Os -mthumb`; engine, retrieval, rules, prestep
 and UI keep their flags. model arena, session heap, context 256 and int16 KV are
 unchanged. application frame-chain bounds from `.su`: learned text 9,184 B,
 pending resolution 4,424 B, calc depth 4,176 B, learned act loading 3,672 B,
 publication 3,320 B, rules 2,928 B. this is measured headroom, not a proof of
 fragmentation safety.
+
+### #18 context-64 borrowing claim: CONFIRMED
+
+The shipped shape is dim 192, 6 layers, 6 attention heads, 2 KV heads,
+context 256. `engine.c:session_create` reserves each int16 KV arena as
+`layers * context * kv_heads * (dim / heads) * 2`:
+
+- values at 256: `6 * 256 * 2 * 32 * 2 = 196,608 B`;
+- hypothetical values at 64: `6 * 64 * 2 * 32 * 2 = 49,152 B`;
+- loader heads: `22,660 + 11,452 + 5,224 = 39,336 B`;
+- router scratch: `4096 * 2 + 10 * 48 * 4 = 10,112 B`;
+- required borrowed values: `39,336 + 10,112 = 49,448 B`;
+- shortfall at 64: `49,448 - 49,152 = 296 B`.
+
+`test_workspace.py` compiles a host probe using the real session allocator,
+external-key API and the loader's actual private constants/arena check. It
+observes 393,216/98,304 total KV bytes, 196,608/49,152 value bytes and loader
+init success/failure at 256/64 respectively. The same probe also confirms these
+numbers when loading the shipped DSQ8 file. Lazy loading does not shrink the
+fixed reservation. This verifies the review claim; **production context stays
+256**, with no model-header or engine/KV precision change.
