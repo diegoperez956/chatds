@@ -3,9 +3,11 @@ import pathlib
 import sys
 import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'clean/product'))
-import host_pipeline as hp
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'corpus'))
+import chatds_runtime as rt
 import casualmath as cm
-from test_narrowfix import facts  # noqa: F401
+from test_narrowfix import answers, facts  # noqa: F401
+from test_product import executable, invoke  # noqa: F401
 
 CALCS = [
     ('one plus twenty', 'calc(1+20) = 21'),
@@ -36,7 +38,7 @@ CALCS = [
 
 @pytest.mark.parametrize('q,expected', CALCS)
 def test_casual(q, expected):
-    assert cm.answer(q, hp.rt.apply_calc) == expected
+    assert cm.answer(q, rt.apply_calc) == expected
 
 @pytest.mark.parametrize('q,expected', [
     ('now double it', 'calc((20*2)) = 40'),
@@ -46,14 +48,14 @@ def test_casual(q, expected):
     ('split it 4 ways', 'calc((20)/(4)) = 5'),
 ])
 def test_follow(q, expected):
-    assert cm.answer(q, hp.rt.apply_calc, 'calc(12+8) = 20') == expected
-    assert cm.answer(q, hp.rt.apply_calc) is None
+    assert cm.answer(q, rt.apply_calc, 'calc(12+8) = 20') == expected
+    assert cm.answer(q, rt.apply_calc) is None
 
 @pytest.mark.parametrize('q', ['catch 22', 'what is 1984 about', 'Is 5 in words?', 'who is 42', 'write python 8 plus 2',
     '9 apples minus 4 oranges', '5 and 7', 'one', 'split it ways', 'seven plus', 'minus',
     '10 plus 3 not 4', 'what about 7 plus 9', 'multiply it', 'print(3+2)', 'reverse words 3 plus 4'])
 def test_decline(q):
-    assert cm.answer(q, hp.rt.apply_calc) is None
+    assert cm.answer(q, rt.apply_calc) is None
 
 
 # Shared with full-product parity/ROM and the sanitized C twin.
@@ -78,21 +80,21 @@ def test_shape_only_veto(q, blocked):
 
 @pytest.mark.parametrize('q', NONCALCS)
 def test_numeric_guards(q):
-    assert cm.answer(q, hp.rt.apply_calc) is None
+    assert cm.answer(q, rt.apply_calc) is None
     if '-' in q or '/' in q:
-        assert cm.answer(q, hp.rt.apply_calc, 'calc(12+8) = 20') is None
+        assert cm.answer(q, rt.apply_calc, 'calc(12+8) = 20') is None
 
 
 @pytest.mark.parametrize('q', ['1984', '42', '18.25 ugh', '42 please'])
 def test_numeric_echo_needs_verified_context(q):
     expected = 'calc(' + q.split()[0] + ') = ' + q.split()[0]
-    assert cm.answer(q, hp.rt.apply_calc, 'calc(12+8) = 20') == expected
-    assert cm.answer(q, hp.rt.apply_calc, 'calc(12+8) = 99') is None
+    assert cm.answer(q, rt.apply_calc, 'calc(12+8) = 20') == expected
+    assert cm.answer(q, rt.apply_calc, 'calc(12+8) = 99') is None
 
 
 def test_half_precedence():
-    assert cm.answer('half of 10 plus 4', hp.rt.apply_calc) == 'calc((10/2)+4) = 9'
-    assert cm.answer('half of a dozen minus 2', hp.rt.apply_calc) == 'calc((12/2)-2) = 4'
+    assert cm.answer('half of 10 plus 4', rt.apply_calc) == 'calc((10/2)+4) = 9'
+    assert cm.answer('half of a dozen minus 2', rt.apply_calc) == 'calc((12/2)-2) = 4'
 
 
 @pytest.mark.parametrize('q,decoded', [
@@ -104,34 +106,21 @@ def test_half_precedence():
     ('1984', 'calc(1984) = 1984'),
     ('42', 'calc(42) = 42'),
 ])
-def test_pipeline_no_legacy_or_decoder_bypass(facts, q, decoded):
-    class Gen:
-        def gen(self, ctx, q):
-            return dict(output=decoded, status='OK', stop='', prompt_tokens=0,
-                        ctx_tokens=0, gen_tokens=0, trimmed=0, calc=1, prompt='')
-    pl = hp.Pipeline(hp.CONDS[43], kb4_path=str(facts), gen=Gen())
-    try:
-        row = hp.run_case(pl, dict(case_id='guard', turns=[dict(user=q)]))['outputs'][0]
-        assert row['output'] != decoded
-        assert row['path'] != 'calculator'
-    finally:
-        pl.kb4.close()
+def test_pipeline_no_legacy_or_decoder_bypass(executable, tmp_path, facts, q, decoded):
+    # The shipped product has no decoder-injection seam, so only the route is checked.
+    path, output = answers(executable, tmp_path, facts, [q])[0]
+    assert path != 'calculator'
+    assert output != decoded
 
 
-def test_pipeline_context_and_frozen42(facts):
-    class Gen:
-        def gen(self, ctx, q):
-            return dict(output='fallback', status='OK', stop='', prompt_tokens=0,
-                        ctx_tokens=0, gen_tokens=0, trimmed=0, calc=0, prompt='')
-    old = hp.Pipeline(hp.CONDS[42], kb4_path=str(facts), gen=Gen())
-    new = hp.Pipeline(hp.CONDS[43], kb4_path=str(facts), gen=Gen())
-    try:
-        assert hp.run_case(old, dict(case_id='old', turns=[dict(user='split 84 between seven')]))['outputs'][0]['output'] != 'calc((84)/(7)) = 12'
-        case = dict(case_id='follow', turns=[dict(user=q) for q in ['12 plus 8', 'now double it', 'and minus 3', 'are you sure', 'now double it', 'thanks', 'and minus 4']])
-        rows = hp.run_case(new, case)['outputs']
-        assert [r['output'] for r in rows[:3]] == ['calc(12+8) = 20', 'calc((20*2)) = 40', 'calc(40-3) = 37']
-        assert '40-3 = 37' in rows[3]['output']
-        assert rows[4]['output'] == 'calc((37*2)) = 74'
-        assert rows[6]['output'] == 'calc(74-4) = 70'
-    finally:
-        old.kb4.close(); new.kb4.close()
+def test_pipeline_context_and_frozen42(executable, tmp_path, facts):
+    # Frozen cond-42 comparison needs the private harness; dropped. Follow-up context runs through the product.
+    qs = ['12 plus 8', 'now double it', 'and minus 3', 'are you sure', 'now double it', 'thanks', 'and minus 4']
+    result, _ = invoke(executable, tmp_path, 'steps=2\ninstruct=1\nprompt=hello\n', kb=facts,
+                       serve='R\n' + ''.join(f'Q\t{q}\n' for q in qs))
+    assert result.returncode == 0, result.stderr
+    outputs = [line.split('\t')[2] for line in result.stdout.splitlines()]
+    assert outputs[:3] == ['calc(12+8) = 20', 'calc((20*2)) = 40', 'calc(40-3) = 37']
+    assert '40-3 = 37' in outputs[3]
+    assert outputs[4] == 'calc((37*2)) = 74'
+    assert outputs[6] == 'calc(74-4) = 70'

@@ -102,24 +102,8 @@ def test_bare_length_stays_factual(executable, tmp_path, facts, query):
     assert got[0] == 'transformer'  # unresolved fixture entity retains factual fallback
 
 
-@pytest.mark.parametrize('query', BARE_LENGTH_FACTS)
-def test_bare_length_python_pipeline_unchanged(facts, query):
-    import host_pipeline as hp
-
-    class Gen:
-        def gen(self, ctx, q):
-            return dict(output='fact fallback', status='OK', stop='', prompt_tokens=0,
-                        ctx_tokens=0, gen_tokens=0, trimmed=0, calc=0, prompt='')
-
-    case = dict(case_id='bare-length', turns=[dict(user=query)])
-    pipelines = [hp.Pipeline(hp.CONDS[n], kb4_path=str(facts), gen=Gen()) for n in (24, 41)]
-    try:
-        old, new = [hp.run_case(pl, case)['outputs'][0] for pl in pipelines]
-        assert new['status'] == 'OK' and new['handler'] == 'facts'
-        assert new == old
-    finally:
-        for pl in pipelines:
-            pl.kb4.close()
+# Dropped test_bare_length_python_pipeline_unchanged: it diffed two private harness conditions;
+# test_bare_length_stays_factual above already pins the shipped product's facts route.
 
 
 def test_length_literal_twin_and_bounds(tmp_path):

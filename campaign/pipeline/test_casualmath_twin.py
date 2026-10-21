@@ -4,8 +4,7 @@ import pathlib
 import random
 import subprocess
 import casualmath
-import host_pipeline as hp
-from test_casualmath import CALCS, NONCALCS
+from test_casualmath import CALCS, NONCALCS, rt
 
 
 def test_casual_sanitized_twin(tmp_path):
@@ -69,7 +68,7 @@ int main(void) {
     assert p.returncode == 0 and not p.stderr, p.stderr
     expected = []
     for cap, q, prev in rows:
-        out = casualmath.answer(q, hp.rt.apply_calc, prev)
+        out = casualmath.answer(q, rt.apply_calc, prev)
         expected.append(str(int(casualmath.nonmath(q))) + '\t' +
                         ('1\t' + out.encode().hex() if out and len(out) < cap else '0\t'))
     actual = p.stdout.splitlines()

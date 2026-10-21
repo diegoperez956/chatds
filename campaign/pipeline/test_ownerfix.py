@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: MIT
 """Owner grammar behavior and full-product tests, with generated contrasts."""
 import pathlib
+import random
+import subprocess
 import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'router'))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'corpus'))
 import pytest
+import chatds_runtime as rt
 import ownerfix
 
 
@@ -83,35 +87,25 @@ UNGROUNDED_CALCS = [
 @pytest.mark.parametrize('q,answer,expected',
     [(q, a, True) for q, a in GROUNDED_CALCS] + [(q, a, False) for q, a in UNGROUNDED_CALCS])
 def test_decoded_grounding(q, answer, expected):
-    import host_pipeline as hp
-    assert ownerfix.grounded(q, answer, hp.rt.apply_calc) is expected
+    assert ownerfix.grounded(q, answer, rt.apply_calc) is expected
 
 
 def test_calc_prefix():
-    import host_pipeline as hp
-    assert ownerfix.calc('um what is 4 plus 4', hp.rt.apply_calc) == 'calc(4+4) = 8'
+    assert ownerfix.calc('um what is 4 plus 4', rt.apply_calc) == 'calc(4+4) = 8'
     assert ownerfix._prefix('hey um so 4 plus 4') is None
     # General math-span parsing can still prove the complete arithmetic.
-    assert ownerfix.calc('hey um so 4 plus 4', hp.rt.apply_calc) == 'calc(4+4) = 8'
+    assert ownerfix.calc('hey um so 4 plus 4', rt.apply_calc) == 'calc(4+4) = 8'
     for q, answer in GROUNDED_CALCS[:7]:
-        assert ownerfix.calc(q, hp.rt.apply_calc) == answer
+        assert ownerfix.calc(q, rt.apply_calc) == answer
 
 
-@pytest.mark.parametrize('q,expected', [('quick question capital of peru?', 'capital of peru?'),
-    ('hey, uh what is oxygen?', 'what is oxygen?'), ('yo capital of egypt', 'capital of egypt'),
-    ('uh reverse words "a b"', None), ('quick q who r u', None), ('hey python print 3', None),
-    ('hey so uh capital of peru', None), ('quick queen', None)])
-def test_fact_prefix(q, expected):
-    import host_pipeline as hp
-    assert ownerfix.fact(q, hp) == expected
+LOW = ['nice', '-n', '19', 'ionice', '-c3']
 
 
-def test_asan_twin_fuzz(tmp_path):
-    import random
-    import subprocess
-    import host_pipeline as hp
+@pytest.fixture(scope='module')
+def owner_exe(tmp_path_factory):
     root = pathlib.Path(__file__).resolve().parents[2]
-    source = tmp_path / 'owner-fuzz.c'
+    source = tmp_path_factory.mktemp('owner-fuzz') / 'owner-fuzz.c'
     source.write_text(r'''
 #include <assert.h>
 #include <stdio.h>
@@ -148,14 +142,33 @@ int main(void) {
     }
 }
 ''')
-    exe = tmp_path / 'owner-fuzz'
-    low = ['nice', '-n', '19', 'ionice', '-c3']
-    subprocess.run(low + ['cc', '-std=c99', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+    exe = source.with_suffix('')
+    subprocess.run(LOW + ['cc', '-std=c99', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
         '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-fno-omit-frame-pointer', '-no-pie',
         '-I' + str(root / 'clean/product'), '-I' + str(root / 'clean/plumbing'), '-I' + str(root / 'clean/include'),
         str(source), *[str(root / p) for p in ('clean/product/ownerfix.c', 'clean/product/rules.c',
             'clean/plumbing/prestep.c', 'clean/plumbing/textops.c', 'clean/plumbing/calc.c', 'clean/plumbing/retrieve.c')],
         '-ffunction-sections', '-Wl,--gc-sections', '-o', str(exe)], check=True)
+    return exe
+
+
+def owner_fact(exe, q):
+    out = subprocess.run(LOW + [str(exe)], input=f'256\tF\t{q}\n', text=True, capture_output=True, timeout=30, check=True).stdout
+    flag, _, hexed = out.rstrip('\n').partition('\t')
+    return bytes.fromhex(hexed).decode() if flag == '1' and hexed else None
+
+
+@pytest.mark.parametrize('q,expected', [('quick question capital of peru?', 'capital of peru?'),
+    ('hey, uh what is oxygen?', 'what is oxygen?'), ('yo capital of egypt', 'capital of egypt'),
+    ('uh reverse words "a b"', None), ('quick q who r u', None), ('hey python print 3', None),
+    ('hey so uh capital of peru', None), ('quick queen', None)])
+def test_fact_prefix(owner_exe, q, expected):
+    # Public main has no private host_pipeline (rules_decide); check the shipped C owner_fact instead.
+    assert owner_fact(owner_exe, q) == expected
+
+
+def test_asan_twin_fuzz(owner_exe):
+    exe = owner_exe
     rng = random.Random(420087)
     queries = []
     for i in range(12000):
@@ -174,23 +187,24 @@ int main(void) {
         q = f'um what is {a} times {b} in total'
         queries += [('G', 256, q + f'\tcalc({a}*{b}) = {a*b}'),
                     ('G', 256, q + f'\tcalc({a}*{b}+1) = {a*b+1}')]
-    p = subprocess.run(low + [str(exe)], input=''.join(f'{cap}\t{kind}\t{q}\n' for kind, cap, q in queries),
+    p = subprocess.run(LOW + [str(exe)], input=''.join(f'{cap}\t{kind}\t{q}\n' for kind, cap, q in queries),
         text=True, capture_output=True, timeout=90)
     assert p.returncode == 0, p.stderr
     expected = []
     for kind, cap, q in queries:
         op = ''
-        if kind == 'G': value = ownerfix.grounded(*q.split('\t'), hp.rt.apply_calc)
+        if kind == 'G': value = ownerfix.grounded(*q.split('\t'), rt.apply_calc)
         elif kind == 'I': value = ownerfix.identity(q)
         elif kind == 'T':
             r = ownerfix.text(q) if cap >= 256 else None
             value = r[1] if r else None
             op = r[0] + ':' if r else ''
-        elif kind == 'C': value = ownerfix.calc(q, hp.rt.apply_calc)
-        else: value = ownerfix.fact(q, hp)
+        elif kind == 'C': value = ownerfix.calc(q, rt.apply_calc)
+        else:  # the Python fact twin needs private rules_decide; F rows only run under ASan/UBSan here
+            expected.append(None); continue
         if isinstance(value, str) and len(value) >= cap: value = None
         expected.append(('1\t' + op + value.encode().hex()) if isinstance(value, str) else '1\t' if value else '0\t')
     actual = p.stdout.splitlines()
     assert len(actual) == len(expected)
-    errors = [(queries[i], a, e) for i, (a, e) in enumerate(zip(actual, expected)) if a != e]
+    errors = [(queries[i], a, e) for i, (a, e) in enumerate(zip(actual, expected)) if e is not None and a != e]
     assert not errors, errors[:12]
