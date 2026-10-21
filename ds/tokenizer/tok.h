@@ -21,9 +21,9 @@
 
 typedef struct {
     int n, max_len;
-    unsigned char *buf;           /* the whole file; pieces point into it */
+    unsigned char *buf;           /* owns packed bytes + all tables below */
     const unsigned char **piece;
-    unsigned short *len;
+    unsigned char *len;          /* validated format limit: 255 bytes */
     float *score;
     unsigned short *sorted;       /* normal piece ids sorted by bytes */
     int n_sorted;
