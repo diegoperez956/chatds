@@ -39,8 +39,6 @@ def v0_route(q):
 
 
 GREET = r"(?:hi|hello|hey|yo|howdy|hiya|heya|greetings|good (?:morning|afternoon|evening)|sup|thanks|thank you|thx|ok|okay|ok thanks|cool)"
-# Historical capability rule for pre-narrowfix host conditions (notably c24).
-CAPABILITIES_BASE = r"(?:what can you do|what features.*|what can you help with|can you help me|help|what do you know|what can i ask you|how can you help|what are you good at|what do you do|what commands.*)"
 ACT = {
     "x": r"(?:thats (?:great|cool|nice)|have a good (?:day|one)|introduce yourself|great|good)",
     "greeting": r"(?:hi|hello|hey|yo|howdy|hiya|heya|sup|greetings|morning|good (?:morning|afternoon|evening)|hello there|hey there|hi there|hi chatds|hey chatds)",
@@ -64,7 +62,7 @@ AMBIG = set("java jaguar mercury python ruby apple amazon mouse turkey mars plut
 FACT_CUE = r"^(?:who|what|whats|where|when|which|how (?:many|tall|big|far|old|large)|define|describe|tell me about|capital|population|[a-z ]+ (?:born|died|birthday|last name|surname|occupation|job|capital))\b|\b(born|died|birthday|last name|surname|capital of|population of|birthplace|occupation|known for|years)\b"
 
 
-def improved(q, *, narrowfix=True):
+def improved(q):
     t = re.sub(r"[^a-z0-9%+*/^'._\-\[\](){}= ]+", " ", q.lower()).strip()
     t = re.sub(r"\s+", " ", t)
     plain = re.sub(r"[^a-z0-9 ]+", "", t).strip()
@@ -73,13 +71,11 @@ def improved(q, *, narrowfix=True):
     if re.fullmatch(r"(.)\1{3,}", plain.replace(" ", "")):
         return "unknown"
     for a, rx in ACT.items():
-        if a == 'capabilities' and not narrowfix:
-            rx = CAPABILITIES_BASE
         if re.fullmatch(rx, plain):
             return "facts"
     m = re.match(r"^(?:%s)\b[,!. ]*\s*(.+)$" % GREET, plain)  # greeting prefix must not swallow a task
     if m and len(m.group(1)) > 2:
-        return improved(m.group(1), narrowfix=narrowfix)
+        return improved(m.group(1))
     if plain in AMBIG or re.fullmatch(r"(?:what is|whats|tell me about|who is|define) (?:a |the )?(%s)" % "|".join(AMBIG), plain):
         return "clarify"
     if re.search(UNSUP, plain):

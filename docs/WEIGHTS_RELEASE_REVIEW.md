@@ -63,17 +63,18 @@ v0.1.0, no TinyStories text and no old tokenizer corpus went in.
 - GPT-authored rows: OpenAI's terms page returned 403 to an automated fetch on
   2026-10-21 and was not re-read for this review. OpenAI's terms assign output
   ownership to the user and restrict using output to develop competing models;
-  the same reading as above applies. **open item: re-check the exact current
-  OpenAI terms text before publishing.**
+  the same reading as above applies. owner-accepted on 2026-10-21: told about
+  the GPT- and Claude-authored rows and the unread OpenAI terms, the owner chose
+  to publish under MIT with this provenance note.
 - no DeepSeek-authored data is in v0.2.0, so v0.1.0's DeepSeek terms check no
   longer applies to the model.
 
 license: **MIT for `model.bin` and `tok.bin`**, the same grant the owner chose
-for v0.1.0, carried over here (`licenses/MODEL-TOKENIZER-MIT.txt`). the
+for v0.1.0, confirmed by the owner for v0.2.0 (`licenses/MODEL-TOKENIZER-MIT.txt`). the
 Wikipedia text and index stay CC BY-SA 4.0. the heads ship under the root MIT
 license with the code, as [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
 says; their training rows (project request phrasing, partly LLM-assisted) were
-not re-audited under the GLM/DeepSeek rule. the "provenance-clean" claim covers
+not re-audited under the GLM/DeepSeek rule; the owner waived that audit. the "provenance-clean" claim covers
 `model.bin` and `tok.bin` only.
 
 ### validation

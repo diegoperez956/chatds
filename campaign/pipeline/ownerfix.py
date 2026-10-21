@@ -88,6 +88,6 @@ def fact(q, hp):
         return None
     tail = _prefix(q)
     if (not tail or identity(tail) or
-            hp.rules_decide(tail, narrowfix=True)['handler'] != 'facts'):
+            hp.rules_decide(tail)['handler'] != 'facts'):
         return None
     return tail if (hp.rules.v0_gate(tail) or re.search(hp.rules.FACT_CUE, hp.plain_of(tail))) else None

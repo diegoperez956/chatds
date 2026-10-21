@@ -96,3 +96,7 @@ harness, as [RELEASE.md](RELEASE.md) says.
 answers are AI-generated and often wrong. the model trades fewer code leaks
 for more confident-wrong casual answers than c24's model. emulator timings are
 not DS timings. the owner's demo is the only hardware run.
+
+- casual math skips unknown words around the math, so "what is 12 times 12 in
+  binary" or "sqrt 16 plus 9" can get a plain calculator answer (144, 25) that
+  ignores the conversion or function word.
