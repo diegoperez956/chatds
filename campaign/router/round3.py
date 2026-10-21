@@ -139,6 +139,20 @@ def heads(q):
     return dict(act=(ACTS[a], am), op=(OPS[o], om))
 
 
+def act_allowed(q, dec, hp):
+    """No theft from explicit tasks; default-facts is not a fired fact rule."""
+    if (ps.dlg_kind(q) or dec.get('act')
+            or hp.r4.conversation_act(hp.kb3.normalize(q).split())
+            or dec['handler'] in ('text', 'calc', 'python', 'shell', 'conversation')
+            or to.textops(q) or ps.calc_parse(q)):
+        return False
+    if dec['handler'] == 'facts' and (hp.rules.v0_gate(q) or hp.re.search(hp.rules.FACT_CUE, hp.plain_of(q))):
+        return False
+    if hp.ambig_term(hp.plain_of(q)) or ps.textops_guard(q):
+        return False
+    return ps.ascii_ok(q)
+
+
 def act(q, *, raw=False):
     """Caller vetoes when c14 rules/dialogue fired. raw bypasses the threshold."""
     label, margin = heads(q)['act']

@@ -188,9 +188,30 @@ static __attribute__((noinline)) int act_allowed(c14_runtime *r) {
 }
 static const int learned_acts[] = {A_NONE, A_GREETING, A_THANKS, A_BYE, A_IDENTITY,
     A_CAPABILITIES, A_HOW_ARE_YOU, A_COMPLIMENT, A_INSULT, A_REPEAT, A_PUSHBACK};
+static __attribute__((noinline)) int literal_length(c14_runtime *r) {
+    char literal[128], key[128];
+    int kind = cds_textops_length_literal(r->effective, literal, sizeof literal);
+    if (!kind) return 0;
+    if (kind == 2) {
+        /* No KB available is not proof of a non-entity. Lookup errors fail
+         * closed, and even ambiguous identities retain their factual route. */
+        if (!r->kb4.f) return 0;
+        cds_normalize(literal, key, sizeof key);
+        cds4_cand candidates[CDS4_CAND_MAX];
+        int n = cds4_lookup(&r->kb4, key, candidates);
+        if (!n && !strncmp(key, "the ", 4)) n = cds4_lookup(&r->kb4, key + 4, candidates);
+        if (n < 0) return -1;
+        if (n) return 0;
+    }
+    /* Preserve existing deterministic counts and learned textops below. If
+     * neither accepts, use the existing len/code backend rather than KB facts. */
+    r->dec.handler = H_PYTHON; return 1;
+}
 static int core(c14_runtime *r) {
     r->dec = c14_rules(r->q); int h = r->dec.handler;
     int dr = dialogue(r); if (dr) return dr < 0 ? -1 : 0;
+    int length = literal_length(r); if (length < 0) return -1;
+    if (length) h = r->dec.handler;
     if (act_allowed(r)) {
         int act = c24_act(r->g->session, r->q, &r->act_margin);
         if (act < 0) return -1;
