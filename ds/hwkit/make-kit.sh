@@ -3,21 +3,43 @@
 # Build the clean product and stage files; never write to a physical card.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MODE=assistant MODEL="" TOK="" KB="" KB4="" KB_ATTRIBUTION="" STEPS="" PROMPT=""
+MODE=assistant MODEL="" TOK="" ASSET_DIR="" KB="" KB4="" KB_ATTRIBUTION="" STEPS="" PROMPT=""
 OUT="$ROOT/ds/hwkit/sdcard"
 while (($#)); do
     case "$1" in
-        --mode|--model|--tokenizer|--kb|--kb4|--kb-attribution|--steps|--prompt|--out)
+        --mode|--asset-dir|--model|--tokenizer|--kb|--kb4|--kb-attribution|--steps|--prompt|--out)
             (($# >= 2)) || { echo "Missing value: $1" >&2; exit 2; }
             case "$1" in
-                --mode) MODE=$2;; --model) MODEL=$2;; --tokenizer) TOK=$2;; --kb) KB=$2;; --kb4) KB4=$2;;
+                --mode) MODE=$2;; --asset-dir) ASSET_DIR=$2;;
+                --model) MODEL=$2;; --tokenizer) TOK=$2;; --kb) KB=$2;; --kb4) KB4=$2;;
                 --kb-attribution) KB_ATTRIBUTION=$2;;
                 --steps) STEPS=$2;; --prompt) PROMPT=$2;; --out) OUT=$2;;
             esac; shift 2;;
-        *) echo 'Usage: make-kit.sh --model PATH --tokenizer PATH [--mode assistant|story] [(--kb PATH | --kb4 PATH) --kb-attribution PATH] [--steps N] [--prompt TEXT] [--out DIR]' >&2; exit 2;;
+        *) echo 'Usage: make-kit.sh (--asset-dir DIR | --model PATH --tokenizer PATH) [--mode assistant|story] [(--kb PATH | --kb4 PATH) --kb-attribution PATH] [--steps N] [--prompt TEXT] [--out DIR]' >&2; exit 2;;
     esac
 done
-[[ -n "$MODEL" && -n "$TOK" ]] || { echo 'Supply both --model and --tokenizer; no implicit model fallback.' >&2; exit 2; }
+if [[ -n "$ASSET_DIR" ]]; then
+    [[ -z "$MODEL" && -z "$TOK" ]] || { echo '--asset-dir conflicts with --model/--tokenizer' >&2; exit 2; }
+    ASSET_DIR=$(realpath -e "$ASSET_DIR")
+    # Verify the pair only. Never follow manifest paths or accept a missing entry.
+    python3 - "$ASSET_DIR" <<'PY'
+import hashlib, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+entries = {}
+for line in (root / 'SHA256SUMS').read_text().splitlines():
+    match = re.fullmatch(r'([0-9a-fA-F]{64}) [ *](model\.bin|tok\.bin)', line)
+    if match:
+        digest, name = match.groups()
+        if name in entries:
+            raise SystemExit('duplicate asset checksum: ' + name)
+        entries[name] = digest.lower()
+for name in ('model.bin', 'tok.bin'):
+    if name not in entries or hashlib.sha256((root / name).read_bytes()).hexdigest() != entries[name]:
+        raise SystemExit('asset checksum missing or mismatched: ' + name)
+PY
+    MODEL="$ASSET_DIR/model.bin"; TOK="$ASSET_DIR/tok.bin"
+fi
+[[ -n "$MODEL" && -n "$TOK" ]] || { echo 'Supply --asset-dir or both --model and --tokenizer; no implicit model fallback.' >&2; exit 2; }
 case "$MODE" in
     story) STEPS=${STEPS:-200}; PROMPT=${PROMPT:-Once upon a time}; INSTRUCT=0;;
     assistant) STEPS=${STEPS:-64}; PROMPT=${PROMPT:-whats 38 times 47}; INSTRUCT=1;;
