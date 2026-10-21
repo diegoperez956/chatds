@@ -19,6 +19,7 @@ AR = $(PREFIX)ar
 CFLAGS += -marm -mcpu=arm946e-s+nofp -ffunction-sections -fdata-sections \
  -specs=$(BLOCKSDS)/sys/crts/ds_arm9.specs
 CPPFLAGS += -DARM9 -D__NDS__ -D__BLOCKSDS__ -I$(BLOCKSDS)/libs/libnds/include
+OBJECTS += $(BUILD)/dot32_arm.o
 else ifneq ($(TARGET),host)
 $(error TARGET must be host or nds)
 endif
@@ -40,14 +41,21 @@ all: $(LIBRARY)
 $(BUILD)/%.o: src/%.c src/internal.h include/chatds_engine.h
 	@mkdir -p $(BUILD)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+$(BUILD)/dot32_arm.o: src/dot32_arm.S
+	@mkdir -p $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 $(LIBRARY): $(OBJECTS)
 	$(AR) rcs $@ $^
 $(BUILD)/test-%: tests/test_%.c $(LIBRARY) src/internal.h include/chatds_engine.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< $(LIBRARY) -lm -o $@
 ifeq ($(TARGET),host)
-test: $(BUILD)/test-engine $(BUILD)/test-kernels
+$(BUILD)/test-asm: tests/test_asm.c src/kernels.c src/internal.h include/chatds_engine.h
+	@mkdir -p $(BUILD)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -DCDS_TEST_ASM tests/test_asm.c src/kernels.c -o $@
+test: $(BUILD)/test-engine $(BUILD)/test-kernels $(BUILD)/test-asm
 	$(BUILD)/test-engine $(BUILD)/test-model.bin
 	$(BUILD)/test-kernels
+	$(BUILD)/test-asm
 else
 test:
 	@echo 'Run make TARGET=host test; emulator validation belongs to the parity runner.' >&2; exit 2

@@ -73,6 +73,21 @@ All scale products use int64. Products that would overflow int64 are detected
 before multiplication and necessarily saturate even after the largest final
 shift. Every int32 input, including `INT32_MIN`, is handled without signed UB.
 
+ARM9 FAST additionally selects an ARMv5TE packed-halfword leaf only for gs32,
+width 32..1024 inclusive, `width % 32 == 0`, and word-aligned quantization
+scratch. Every failed specialization condition routes to the retained C fast
+kernel, including valid halfword-only-aligned scratch. Host FAST remains C.
+Serialized weights/scales may be byte-aligned; the leaf uses signed byte weight
+loads and the wrapper keeps unaligned-safe scale decoding. No expanded weights,
+new allocation, scale reassociation, or change to per-group flooring is allowed.
+The loader's valid-buffer/extent/group/scale contract still applies: this is not
+an arbitrary malformed-pointer validator. The product boot smoke check compares
+one two-row matmul with C (saturating and nonsaturating rows). A mismatch latches
+C for the process lifetime and logs the result to console and, when writable,
+`chatds/kernel.txt`. A passing smoke check is not an exhaustive correctness proof.
+See [assembly validation](../tools/asmkern/README.md) for forced fallback,
+real ARM, interworking, overflow and timing checks.
+
 Embedding lookup uses
 `floor(weight * group_scale * row_scale / 2^23)`, saturated to int32.
 
@@ -180,7 +195,13 @@ broader cross-platform parity are not certified by these checks.
 
 ## TCM and memory
 
-ARM9 fast matvec and attention code reside in ITCM. Only when the ARM9 library
+ARM9 fast matvec kernels reside in ITCM. Product ROM builds inspect the final
+linker map and ARM/Thumb disassembly before packaging: reject TCM overflow,
+DTCM data/stack overlap and unsafe direct kernel ISA transitions. Constant-pool
+BX/BLX calls are checked as well. Existing ARM callers need no veneer; a separate
+Thumb diagnostic calls the real ARM leaf through BLX and returns through BX LR.
+The DTCM stack reservations and workspace policy are unchanged.
+Only when the ARM9 library
 is built with `DTCM_POOL=1`, one fitting FAST session may claim a statically
 reserved **10 KiB DTCM pool**, split into 2176 int32 activation
 slots and 768 int16 quantization slots. All dimensions remain dynamic; sessions

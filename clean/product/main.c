@@ -17,6 +17,9 @@
 #include "chatds_ui_demo.h" /* Scripted input only; the demo generator is not linked. */
 #include "dispatch.h"
 #include "learned.h"
+#ifdef ARM9
+#include "internal.h" /* Private boot kernel smoke check. */
+#endif
 
 static chatds_model *model;
 static chatds_session *session;
@@ -385,6 +388,11 @@ int main(int argc, char **argv) {
     cpuStartTiming(0);
     stack_paint();
     if (!fatInitDefault()) { puts("FAIL: fatInitDefault()"); goto idle; }
+    const char *kernel_check = cds_matvec_self_check() ?
+        "gs32 boot self-check PASS" : "gs32 boot self-check FAIL; asm disabled; using C";
+    puts(kernel_check);
+    FILE *kernel_log = fopen("fat:/chatds/kernel.txt", "w");
+    if (kernel_log) { fprintf(kernel_log, "%s\n", kernel_check); fclose(kernel_log); }
     model_path = "fat:/chatds/model.bin"; tok_path = "fat:/chatds/tok.bin";
     kb_path = "fat:/chatds/kb.bin"; run_path = "fat:/chatds/run.txt";
     directory = "fat:/chatds/";

@@ -20,7 +20,10 @@ host: $(BUILD)/chatds-host
 $(BUILD):
 	mkdir -p $@
 HOST_OBJS := $(addprefix $(BUILD)/host/,$(notdir $(SOURCES:.c=.o)))
-ARM_OBJS := $(addprefix $(BUILD)/nds/,$(notdir $(SOURCES:.c=.o)))
+ARM_OBJS := $(addprefix $(BUILD)/nds/,$(notdir $(SOURCES:.c=.o))) $(BUILD)/nds/dot32_arm.o
+$(BUILD)/nds/dot32_arm.o: ../src/dot32_arm.S Makefile
+	@mkdir -p $(BUILD)/nds
+	$(PREFIX)gcc $(ARM) -c $< -o $@
 define COMPILE
 $(BUILD)/host/$(notdir $(1:.c=.o)): $(1) $(HEADERS) Makefile
 	@mkdir -p $(BUILD)/host
@@ -40,7 +43,12 @@ $(BUILD)/chatds.elf: $(ARM_OBJS) | $(BUILD)
 	$(PREFIX)gcc $(ARM) $^ -o $@ \
 	 -L$(BLOCKSDS)/libs/libnds/lib -Wl,--defsym=__usr_stack_size=4096 -Wl,-Map,$(BUILD)/chatds.map \
 	 -Wl,--start-group -lnds9 -lc -lm -Wl,--end-group
-$(BUILD)/chatds.nds: $(BUILD)/chatds.elf
+$(BUILD)/layout.ok: $(BUILD)/chatds.elf $(BUILD)/chatds.map ../../tools/asmkern/check_layout.py
+	python3 ../../tools/asmkern/check_layout.py --prefix $(PREFIX) --elf $(BUILD)/chatds.elf --map $(BUILD)/chatds.map --out $(BUILD)/layout.json
+	touch $@
+$(BUILD)/chatds.map: $(BUILD)/chatds.elf
+	@test -f $@
+$(BUILD)/chatds.nds: $(BUILD)/chatds.elf $(BUILD)/layout.ok
 	$(BLOCKSDS)/tools/ndstool/ndstool -c $@ \
 	 -7 $(BLOCKSDS)/sys/arm7/main_core/arm7_maxmod.elf -9 $< \
 	 -b $(BLOCKSDS)/sys/icon.gif 'ChatDS;Clean DSQ8 engine;ChatDS'
