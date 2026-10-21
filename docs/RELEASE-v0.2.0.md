@@ -16,6 +16,11 @@ DS via DSpico, 2026-10-21 (qualitative).** no timings were recorded.
   retrained from scratch on permitted pairs only: no GLM- or DeepSeek-authored
   data. fewer code leaks, but it can be confidently wrong more often on casual
   chat. [weights review](WEIGHTS_RELEASE_REVIEW.md).
+- **license.** the owner decided on 2026-10-21 to publish as is: MIT confirmed
+  by the owner for `chatds/model.bin` and `chatds/tok.bin`. 4,514 GPT-authored
+  and 854 Claude-authored rows are among the 275,272 training pairs. the owner
+  waived the round3 heads audit under the GLM/DeepSeek rule. details in the
+  [weights review](WEIGHTS_RELEASE_REVIEW.md).
 - **owner-style rule fixes.** identity slang ("who r u"), caps aliases
   (`caps "a b!"`), reverse-word spans ("flip the order of the words in ..."),
   task labels ("math: 3+4"), conversational prefixes before a fact question,
