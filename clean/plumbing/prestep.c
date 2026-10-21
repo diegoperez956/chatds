@@ -766,6 +766,42 @@ int cds_calc_answer(const char *q, char *out, size_t cap) {
     return cds_apply_calc(s, out, cap);
 }
 
+/* Ground decoded math without requiring request prose to be parser filler.
+ * Keep every number, symbol and math word in order. Never synthesize operands. */
+static int calc_prose_answer(const char *q, char *out, size_t cap, int edges_only) {
+    char math[MAXQ + 1];
+    size_t n = 0;
+    int prose = 0;
+    if (calc_lex(q)) return 0;
+    for (int i = 0; i < cn; i++) {
+        const char *v = CT[i].t;
+        if (CT[i].k == 'W') {
+            if (in_list(PS_CODEW, v)) return 0;
+            if (!in_list(PS_CALC_KNOWN, v) || in_list(PS_CALC_FILL, v) || in_list(PS_CALC_TAIL, v)) {
+                if (n) prose = 1;
+                continue;
+            }
+        }
+        if (edges_only && prose) return 0;
+        size_t k = strlen(v);
+        if (n + (n != 0) + k > MAXQ) return 0;
+        if (n) math[n++] = ' ';
+        memcpy(math + n, v, k); n += k;
+    }
+    math[n] = 0;
+    return cds_calc_answer(math, out, cap);
+}
+int cds_calc_prose_answer(const char *q, char *out, size_t cap) {
+    return calc_prose_answer(q, out, cap, 1);
+}
+int cds_calc_grounded(const char *q, const char *answer) {
+    char expected[256];
+    return calc_prose_answer(q, expected, sizeof expected, 0) && !strcmp(expected, answer);
+}
+
+/* c43 shares the bounded lexer/literal grammar, never the old entry points. */
+#include "casualmath.inc"
+
 /* ------------------------------------------------------------------ 3. textops negative guard */
 static void unquote(const char *q, char *o) {
     size_t n = strlen(q);

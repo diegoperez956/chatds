@@ -24,6 +24,14 @@ void cds_style_apply(int style, const char *in, char *out);
  * Returns the expression length (0 = decline). cds_calc_answer returns "calc(expr) = value" (0 = decline or not evaluable). */
 int cds_calc_parse(const char *q, char *expr, size_t cap);
 int cds_calc_answer(const char *q, char *out, size_t cap);
+/* Parse contiguous math with prose only outside the math span. */
+int cds_calc_prose_answer(const char *q, char *out, size_t cap);
+/* Decoded-answer grounding only: preserve every math token, ignore surrounding prose. */
+int cds_calc_grounded(const char *q, const char *answer);
+/* c43: explicit casual grammar; previous is a verified calc answer or NULL. */
+int cds_casual_answer(const char *q, const char *previous, char *out, size_t cap);
+/* c43-only veto shared with legacy/decoded calculator paths. */
+int cds_casual_nonmath(const char *q);
 
 /* ---- 3. textops negative guard: 1 when q is a question ABOUT a text operation (or a look-alike), not a request to run one */
 int cds_textops_guard(const char *q);
