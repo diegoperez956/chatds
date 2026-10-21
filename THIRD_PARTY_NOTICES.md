@@ -79,6 +79,11 @@ portion of the input data. Whether these mixed-source artifacts qualify, and
 their complete training provenance, remain release review items. Neither this notice nor a source-code license grants blanket
 rights to training datasets or model artifacts.
 
+The v0.2.0 release tokenizer and model were trained only on the permitted
+question/answer pairs described in
+[docs/WEIGHTS_RELEASE_REVIEW.md](docs/WEIGHTS_RELEASE_REVIEW.md), not on
+TinyStories. Its Wikipedia-grounded answers remain CC BY-SA 4.0 material.
+
 ## external tools and linked ROM runtime
 
 - BlocksDS/libnds: zlib license; FatFs and picolibc/libm: BSD-style notices.

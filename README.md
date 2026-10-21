@@ -6,12 +6,16 @@ evaluates `calc(...)` calls, draws small math plots and writes short python or
 shell snippets.
 the current model has 2.75 million parameters. it gets things wrong a lot.
 
-the current product is c24: rules, a calculator parser, a pocket math notebook,
-text operations and ranked KB4 fact lookup answer first, two small learned
-fallbacks catch conversation and text requests the rules miss, and the model
-only fills the gaps. the current c24 ROM (sha256 `4a6ee86e…20e1`) ran on a real
-DS; the previous build, c14, ran on a real DS through a DSpico flashcart.
-[c24 details, scores and gates](docs/PRODUCT-C24.md), [c14](docs/PRODUCT-C14.md).
+the current release is **v0.2.0**: c24's rules, calculator parser, pocket math
+notebook, text operations and ranked KB4 fact lookup answer first, two small
+learned fallbacks catch conversation and text requests the rules miss, and the
+model only fills the gaps. v0.2.0 adds owner-style rule fixes, casual math in
+prose, an ARM assembly matvec kernel, a RAM reclaim, a provenance-clean model and
+tokenizer, and an empty editor at startup.
+**hardware-tested: owner ran this exact ROM (sha256 `b2e7a47b…100a`) on a real
+DS via DSpico, 2026-10-21 (qualitative).**
+[v0.2.0 notes](docs/RELEASE-v0.2.0.md), [c24 details, scores and gates](docs/PRODUCT-C24.md),
+[c14](docs/PRODUCT-C14.md).
 
 ![chatds answering a capital question and calculating 38 times 47](docs/demo.gif)
 
@@ -39,19 +43,21 @@ not generated tokens divided by the whole run. largest main-RAM heap-break
 proxy: **3,653,632 bytes**. this is not a stack or live-allocation peak.
 [method, binary hashes and raw results](docs/ENGINE-BENCHMARK.md).
 
-## get the c24 kit
+## get the kit
 
-**No c24 release download is published. Build the kit with
-`ds/hwkit/make-kit.sh`**; see [build from source](#build-from-source) below.
-The script builds the current ROM and stages its three learned heads.
+download `chatds-v0.2.0-sdcard.zip` from the
+[v0.2.0 release](https://github.com/papayuh/chatds/releases/tag/v0.2.0), extract
+it on a PC and copy `chatds.nds` plus `chatds/` to the card root (see [run](#run)).
+don't copy the ZIP itself to the card. the kit has the ROM (sha256
+`b2e7a47ba0c4509fdbefa6401261f6717810ec6bfad8f447ea2b92d88e1b100a`), the
+2,986,240-byte DSQ8 model, its 2048-token tokenizer, the KB4 index, the three
+learned heads, and license/attribution files.
+hardware-tested: owner ran this exact ROM (sha above) on a real DS via DSpico,
+2026-10-21 (qualitative). no timings were recorded.
 
-Training is optional. The [historical v0.1.0 release](https://github.com/papayuh/chatds/releases/tag/v0.1.0)
-provides `chatds-v0.1.0-sdcard.zip`: its matching 2,986,240-byte DSQ8 model and
-2048-token runtime tokenizer can be reused as build inputs. **Its ROM is not
-c24 (or c14)**, and its 42,321,808-byte KB3 index is not KB4. Extract the ZIP
-before using its assets; do not copy the ZIP itself to a card. For ranked KB4
-retrieval, build an index with `corpus/kb/build_kb4.py` and package it with
-`--kb4` and its attribution.
+the [v0.1.0 release](https://github.com/papayuh/chatds/releases/tag/v0.1.0) is
+historical: older ROM, KB3 and the previous model/tokenizer pair. don't mix its
+`tok.bin` with the v0.2.0 `model.bin`.
 
 **training runs on a PC with PyTorch, usually a GPU—not on the DS.** the DS
 only runs inference. training your own model is optional; see [train/](train/README.md).
@@ -61,10 +67,7 @@ index and retrieved text: **CC BY-SA 4.0**, not MIT. preserve the included
 `chatds/kb-ATTRIBUTION.txt` and `licenses/CC-BY-SA-4.0.txt` when redistributing;
 identify further changes and share adapted text under the same or a permitted
 compatible license. the kit includes separate MIT model/tokenizer and linked
-runtime notices. the v0.1.0 kit ROM itself has not been run on a physical DS
-lite/DSpico; it passed host/melonDS smoke tests, not hardware certification.
-c14 and the current c24 ROM ran on a real DS but are not in that release;
-use the source-built c24 kit, not the historical release ROM.
+runtime notices. [weights release review](docs/WEIGHTS_RELEASE_REVIEW.md).
 
 ## build from source
 
@@ -79,9 +82,11 @@ make host                      # clean/product/build/chatds-host
 ```
 
 binaries and full datasets are not committed to the source tree. use the
-historical kit's `chatds/model.bin` and `chatds/tok.bin` plus a KB4 index and
-its `ATTRIBUTION.txt` from `corpus/kb/build_kb4.py` in the packaging command
-below, or supply your own compatible licensed assets. model shape is read from
+v0.2.0 kit's `chatds/model.bin`, `chatds/tok.bin`, `chatds/kb4.bin` and
+`chatds/kb-ATTRIBUTION.txt` in the packaging command below (or build a KB4 with
+`corpus/kb/build_kb4.py`), or supply your own compatible licensed assets. with
+the v0.2.0 assets and the same prompt, this tree rebuilds the release ROM
+byte-for-byte. model shape is read from
 the file, not baked into the ROM. unsupported layouts, mismatched vocabulary
 sizes and malformed files are refused.
 
@@ -97,6 +102,7 @@ index instead of `--kb4`. the notebook is in the ROM and needs no card files.
 packaging stages files; it never writes a physical card.
 `ds/hwkit/smoke-test.sh` expects transformer-only answers, so it is not a c14/c24
 validator; see [kit testing](ds/hwkit/README.md#testing).
+`--asset-dir DIR` takes `model.bin`, `tok.bin` and their `SHA256SUMS` together.
 
 ## tokenizer assets
 
@@ -199,8 +205,8 @@ report missing MIT training dependencies rather than silently claiming coverage.
 facts can retrieve the wrong article. names get garbled; answers can be invented.
 the product retains 31/33 frozen compatibility behaviors, including five clean
 oversized-input rejections. two numerical differences have exact pinned outputs;
-[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14 and the current c24 ROM have
-run on a real DS, but no physical DS timing or stack-canary run has been recorded.
+[details](docs/ENGINE-SWAP-INVESTIGATION.md). c14, a c24 ROM and the v0.2.0 ROM
+have run on a real DS, but no physical DS timing or stack-canary run has been recorded.
 
 ChatDS code is MIT-licensed; see [LICENSE](LICENSE). the owner also releases the
 kit's trained model and runtime tokenizer under MIT; see its
@@ -208,16 +214,15 @@ kit's trained model and runtime tokenizer under MIT; see its
 [release audit](docs/PUBLIC_RELEASE_AUDIT.md) is historical; the pretrained
 release notes and included notices describe the separate binary/data release.
 
-training answers include AI-generated DeepSeek API outputs and project-owned
-Python/arithmetic generators. [DeepSeek's official terms](https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html)
-(last updated March 27, 2026; checked October 5, 2026), sections 1.1 and 4.2,
-cover APIs, assign provider output rights if any to users, and allow training
-other models, subject to law and the terms. no underlying training corpus is
-included. answers remain AI-generated and can be wrong.
+the v0.2.0 model and tokenizer were trained only on project generators,
+Wikipedia-grounded answers and a small set of Claude- and GPT-written pairs; no
+GLM- or DeepSeek-authored data. details in the
+[weights release review](docs/WEIGHTS_RELEASE_REVIEW.md). no underlying training
+corpus is included. answers remain AI-generated and can be wrong.
 
 BlocksDS/libnds and its runtime retain their own licenses. Wikipedia-derived
-index/context data is CC BY-SA 4.0; TinyStories tokenizer-training data is
-CDLA-Sharing-1.0. optional training uses the MIT llama2.c/ds-llm fork and nanoGPT
+index/context data is CC BY-SA 4.0. the v0.1.0 tokenizer's TinyStories
+training data is CDLA-Sharing-1.0; v0.2.0's tokenizer does not use it. optional training uses the MIT llama2.c/ds-llm fork and nanoGPT
 configurator. melonDS is GPLv3 and is a test tool, not shipped in the kit.
 DSpico firmware/DLDI is by the LNH team.
 [third-party notices](THIRD_PARTY_NOTICES.md).
