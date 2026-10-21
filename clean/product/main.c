@@ -351,9 +351,9 @@ static void interactive(void) {
     screen_top = top; screen_bottom = bottom;
     lcdMainOnTop();
     chatds_ui_init(&ui, &wrapped);
-    /* Prefill is shell configuration, bounded by cds_config_read. */
-    strcpy(ui.input, config.prompt);
-    ui.input_len = (uint16_t)strlen(config.prompt);
+
+
+
     chatds_ui_render_all(&ui, top, bottom);
     if (run_script()) for (;;) swiWaitForVBlank();
     for (;;) {
