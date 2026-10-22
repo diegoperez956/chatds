@@ -13,7 +13,22 @@ bash ds/hwkit/make-kit.sh --mode assistant \
   --prompt 'what is the capital of france' --out build/chatds-kit
 ```
 
-both model and tokenizer are mandatory. `--mode story` uses the question as raw
+Alternatively pass `--asset-dir DIR`, containing `model.bin`, `tok.bin`, and
+`SHA256SUMS` (standard `sha256sum` format). Both checksums are required and
+verified before building or staging; duplicate entries and mismatches fail.
+This option is mutually exclusive with `--model`/`--tokenizer`. Assets remain
+external build inputs, never compiled into the ROM or committed to source.
+The v0.2.0 release ZIP's `chatds/` holds that pair; write a `SHA256SUMS`
+for `model.bin` and `tok.bin` beside them. The model and its rebuilt tokenizer
+always travel together. Example:
+
+```sh
+bash ds/hwkit/make-kit.sh --asset-dir path/to/assets \
+  --kb4 path/to/kb4.bin --kb-attribution path/to/kb-ATTRIBUTION.txt \
+  --prompt 'whats 38 times 47' --out build/chatds-kit
+```
+
+Both model and tokenizer are mandatory. `--mode story` uses the question as raw
 input, without retrieval or calculator handling. defaults: assistant, 64 new
 tokens; story, 200 new tokens. `--steps` accepts 1..256.
 `--kb4` stages ranked KB4 instead of KB3 (`--kb`). either index needs
@@ -95,7 +110,12 @@ THIRD_PARTY_NOTICES.md
 boot `chatds.nds`. **Send**, return, or **START** submits. **Bksp** deletes.
 **Stop** or **B** cancels between engine steps. **Up/Down** scroll the log;
 **About/SELECT** opens the credits. Each transformer question resets KV.
-Assistant mode runs condition 24: c14 style/rules/dialogue get first refusal,
+Assistant mode runs the v0.2.0 product: condition 24 plus NARROWFIX (explicit
+capability phrases route before help disambiguation; explicit literal-length
+requests bypass factual retrieval, bare entity-length questions stay factual)
+and the owner-style rule fixes (`clean/product/ownerfix.c`, casual math in
+`clean/plumbing/casualmath.inc`). The editor starts empty; `prompt=` in
+`run.txt` is used only by batch runs. The c14 style/rules/dialogue get first refusal,
 then eligible learned conversation acts; guarded regex textops and calculator
 precede learned op/literal-span execution; ranked KB4/direct fields/templates
 and transformer fallthrough remain c14. Act/op/tag Q8 thresholds: 1793/386/0.

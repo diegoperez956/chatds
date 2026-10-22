@@ -17,6 +17,9 @@
 #include "chatds_ui_demo.h" /* Scripted input only; the demo generator is not linked. */
 #include "dispatch.h"
 #include "learned.h"
+#ifdef ARM9
+#include "internal.h" /* Private boot kernel smoke check. */
+#endif
 
 static chatds_model *model;
 static chatds_session *session;
@@ -348,9 +351,9 @@ static void interactive(void) {
     screen_top = top; screen_bottom = bottom;
     lcdMainOnTop();
     chatds_ui_init(&ui, &wrapped);
-    /* Prefill is shell configuration, bounded by cds_config_read. */
-    strcpy(ui.input, config.prompt);
-    ui.input_len = (uint16_t)strlen(config.prompt);
+
+
+
     chatds_ui_render_all(&ui, top, bottom);
     if (run_script()) for (;;) swiWaitForVBlank();
     for (;;) {
@@ -377,7 +380,9 @@ static void interactive(void) {
 
 int main(int argc, char **argv) {
     const char *model_path, *tok_path, *kb_path, *run_path;
-    char kb4_path[256], learned_directory[256];
+    /* KB4 open consumes its path before the learned-head directory is saved.
+     * Share storage; the directory then remains live until main exits. */
+    char asset_path[256];
     int rc = 1, serve = 0;
 #ifdef ARM9
     (void)argc; (void)argv;
@@ -385,6 +390,11 @@ int main(int argc, char **argv) {
     cpuStartTiming(0);
     stack_paint();
     if (!fatInitDefault()) { puts("FAIL: fatInitDefault()"); goto idle; }
+    const char *kernel_check = cds_matvec_self_check() ?
+        "gs32 boot self-check PASS" : "gs32 boot self-check FAIL; asm disabled; using C";
+    puts(kernel_check);
+    FILE *kernel_log = fopen("fat:/chatds/kernel.txt", "w");
+    if (kernel_log) { fprintf(kernel_log, "%s\n", kernel_check); fclose(kernel_log); }
     model_path = "fat:/chatds/model.bin"; tok_path = "fat:/chatds/tok.bin";
     kb_path = "fat:/chatds/kb.bin"; run_path = "fat:/chatds/run.txt";
     directory = "fat:/chatds/";
@@ -425,18 +435,18 @@ int main(int argc, char **argv) {
     /* Card KB4 supersedes KB3. A malformed/unreadable KB4 is fatal, never
      * disguised as an absent optional asset. Host accepts explicit KB4 path. */
 #ifdef ARM9
-    strcpy(kb4_path, "fat:/chatds/kb4.bin");
+    strcpy(asset_path, "fat:/chatds/kb4.bin");
 #else
     FILE *probe = fopen(kb_path, "rb"); char magic[4] = {0};
     if (probe) { if (fread(magic, 1, 4, probe) != 4) magic[0] = 0; fclose(probe); }
-    if (!memcmp(magic, "KB4", 3)) snprintf(kb4_path, sizeof kb4_path, "%s", kb_path);
+    if (!memcmp(magic, "KB4", 3)) snprintf(asset_path, sizeof asset_path, "%s", kb_path);
     else {
         const char *slash = strrchr(kb_path, '/');
-        if (slash) snprintf(kb4_path, sizeof kb4_path, "%.*s/kb4.bin", (int)(slash - kb_path), kb_path);
-        else snprintf(kb4_path, sizeof kb4_path, "%skb4.bin", directory);
+        if (slash) snprintf(asset_path, sizeof asset_path, "%.*s/kb4.bin", (int)(slash - kb_path), kb_path);
+        else snprintf(asset_path, sizeof asset_path, "%skb4.bin", directory);
     }
 #endif
-    if (c14_open(&runtime, &generator, kb4_path)) goto fail;
+    if (c14_open(&runtime, &generator, asset_path)) goto fail;
     if (!runtime.kb4.f) {
         kb = &runtime.scratch.legacy;
         cds_kb_status ks = cds_kb_open(kb, kb_path);
@@ -446,15 +456,15 @@ int main(int argc, char **argv) {
     chatds_ui_engine_gen_init(&generator, session, &tok, kb && kb->f ? kb : NULL,
                              config.instruct, prompt_ids, shape->context_length, config.steps);
 #ifdef ARM9
-    strcpy(learned_directory, "fat:/chatds/");
+    strcpy(asset_path, "fat:/chatds/");
 #else
     const char *learned_env = getenv("CHATDS_ROUND3_DIR");
     const char *model_slash = strrchr(model_path, '/');
-    if (learned_env) snprintf(learned_directory, sizeof learned_directory, "%s", learned_env);
-    else if (model_slash) snprintf(learned_directory, sizeof learned_directory, "%.*s/", (int)(model_slash - model_path), model_path);
-    else strcpy(learned_directory, "./");
+    if (learned_env) snprintf(asset_path, sizeof asset_path, "%s", learned_env);
+    else if (model_slash) snprintf(asset_path, sizeof asset_path, "%.*s/", (int)(model_slash - model_path), model_path);
+    else strcpy(asset_path, "./");
 #endif
-    if (config.instruct && c24_models_init(session, learned_directory)) {
+    if (config.instruct && c24_models_init(session, asset_path)) {
         fprintf(stderr, "invalid round3 models or insufficient fallback workspace\n"); goto fail;
     }
 #ifdef ARM9

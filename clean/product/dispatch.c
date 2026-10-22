@@ -7,6 +7,7 @@
 #include "dispatch.h"
 #include "textops.h"
 #include "learned.h"
+#include "ownerfix.h"
 static const char *const acts[] = {"", "hello.", "you're welcome.", "goodbye.", "i'm doing well, thanks.", "ok.",
     "i'm chatds, a small model on a nintendo ds lite.", "i can help with facts, math, python, shell and text."};
 static const char noans[] = "i haven't said anything yet. what do you want to ask?";
@@ -116,9 +117,9 @@ static __attribute__((noinline)) void pushback(c14_runtime *r) {
             }
             snprintf(text, sizeof text, "i checked again. %s", raw); got = 1;
         }
-    } else if (r->dlg.task == CDS_TASK_CALC && cds_calc_answer(r->dlg.lastq, raw, sizeof raw)) {
+    } else if (r->dlg.task == CDS_TASK_CALC && (cds_casual_answer(r->dlg.lastq, NULL, raw, sizeof raw) || owner_calc(r->dlg.lastq, raw, sizeof raw))) {
         char *end = strstr(raw, ") = "); if (end) { *end = 0; snprintf(text, sizeof text, "let me check again. %s = %s", raw + 5, end + 4); got = 1; }
-    } else if (r->dlg.task == CDS_TASK_TEXT && cds_textops(r->dlg.lastq, raw, sizeof raw, NULL)) {
+    } else if (r->dlg.task == CDS_TASK_TEXT && (owner_text(r->dlg.lastq, raw, sizeof raw, NULL) || cds_textops(r->dlg.lastq, raw, sizeof raw, NULL))) {
         snprintf(text, sizeof text, "let me check again. %s", raw); got = 1;
     }
     if (!got) snprintf(text, sizeof text, "sorry, i can't recheck that. what i said was: %s", r->dlg.answer);
@@ -188,9 +189,49 @@ static __attribute__((noinline)) int act_allowed(c14_runtime *r) {
 }
 static const int learned_acts[] = {A_NONE, A_GREETING, A_THANKS, A_BYE, A_IDENTITY,
     A_CAPABILITIES, A_HOW_ARE_YOU, A_COMPLIMENT, A_INSULT, A_REPEAT, A_PUSHBACK};
+static __attribute__((noinline)) int literal_length(c14_runtime *r) {
+    char literal[128], key[128];
+    int kind = cds_textops_length_literal(r->effective, literal, sizeof literal);
+    if (!kind) return 0;
+    if (kind == 2) {
+        /* No KB available is not proof of a non-entity. Lookup errors fail
+         * closed, and even ambiguous identities retain their factual route. */
+        if (!r->kb4.f) return 0;
+        cds_normalize(literal, key, sizeof key);
+        cds4_cand candidates[CDS4_CAND_MAX];
+        int n = cds4_lookup(&r->kb4, key, candidates);
+        if (!n && !strncmp(key, "the ", 4)) n = cds4_lookup(&r->kb4, key + 4, candidates);
+        if (n < 0) return -1;
+        if (n) return 0;
+    }
+    /* Preserve existing deterministic counts and learned textops below. If
+     * neither accepts, use the existing len/code backend rather than KB facts. */
+    r->dec.handler = H_PYTHON; return 1;
+}
+/* Re-derive context from its source, not a styled/recheck/social reply. */
+static __attribute__((noinline)) int casual_turn(c14_runtime *r) {
+    char previous[256] = "";
+    if (r->dlg.task == CDS_TASK_CALC &&
+        !cds_casual_answer(r->dlg.lastq, NULL, previous, sizeof previous))
+        owner_calc(r->dlg.lastq, previous, sizeof previous);
+    return cds_casual_answer(r->effective, previous, r->g->opts.text, r->g->opts.text_cap);
+}
 static int core(c14_runtime *r) {
-    r->dec = c14_rules(r->q); int h = r->dec.handler;
+    char fact[128]; int has_fact = owner_fact(r->q, fact, sizeof fact);
+    r->dec = c14_rules(has_fact ? fact : r->q);
+    if (owner_identity(r->q)) r->dec = (c14_decision){H_CONVERSATION, A_IDENTITY};
+    int h = r->dec.handler;
     int dr = dialogue(r); if (dr) return dr < 0 ? -1 : 0;
+    if (has_fact && !strcmp(r->effective, r->q)) copy(r->effective, sizeof r->effective, fact);
+    if (casual_turn(r)) {
+        const char *end = strstr(r->g->opts.text, ") = ");
+        size_t n = (size_t)(end - r->g->opts.text - 5);
+        memcpy(r->effective, r->g->opts.text + 5, n); r->effective[n] = 0;
+        r->deterministic = 1; r->dec.handler = H_CALC; copy(r->path, sizeof r->path, "calculator");
+        copy(r->g->answer.calc, sizeof r->g->answer.calc, r->g->opts.text); return 0;
+    }
+    int length = literal_length(r); if (length < 0) return -1;
+    if (length) h = r->dec.handler;
     if (act_allowed(r)) {
         int act = c24_act(r->g->session, r->q, &r->act_margin);
         if (act < 0) return -1;
@@ -201,10 +242,11 @@ static int core(c14_runtime *r) {
             }
         }
     }
-    if (cds_textops_guarded(r->effective, r->g->opts.text, r->g->opts.text_cap, NULL)) {
+    if (owner_text(r->effective, r->g->opts.text, r->g->opts.text_cap, NULL) ||
+        cds_textops_guarded(r->effective, r->g->opts.text, r->g->opts.text_cap, NULL)) {
         r->deterministic = 1; copy(r->path, sizeof r->path, "text_exact"); return 0;
     }
-    if (cds_calc_answer(r->effective, r->g->opts.text, r->g->opts.text_cap)) {
+    if (!cds_casual_nonmath(r->effective) && owner_calc(r->effective, r->g->opts.text, r->g->opts.text_cap)) {
         r->deterministic = 1; r->dec.handler = H_CALC; copy(r->path, sizeof r->path, "calculator");
         copy(r->g->answer.calc, sizeof r->g->answer.calc, r->g->opts.text); return 0;
     }
@@ -269,7 +311,14 @@ static int core(c14_runtime *r) {
 static void finish(c14_runtime *r) {
     char *text = r->g->opts.text;
     if (!r->deterministic) {
-        if (r->g->answer.calc[0]) { copy(text, r->g->opts.text_cap, r->g->answer.calc); copy(r->path, sizeof r->path, "calculator"); }
+        if (r->g->answer.calc[0]) {
+            if (!cds_casual_nonmath(r->effective) && owner_grounded(r->effective, r->g->answer.calc)) {
+                copy(text, r->g->opts.text_cap, r->g->answer.calc); copy(r->path, sizeof r->path, "calculator");
+            } else {
+                r->g->answer.calc[0] = 0;
+                copy(text, r->g->opts.text_cap, "which numbers and operation should i use?");
+            }
+        }
         size_t a = 0, n = strlen(text); for (size_t i = 0; i < n; i++) if (text[i] == '\n') text[i] = ' ';
         while (a < n && (unsigned char)text[a] <= 32) a++;
         while (n > a && (unsigned char)text[n - 1] <= 32) n--;

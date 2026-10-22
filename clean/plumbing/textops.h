@@ -19,6 +19,9 @@ enum {
  * or CDS_NOT_TEXT_OP (0) when the request is not a confident text operation. cap must be >= CDS_TEXTOPS_OUT_CAP. */
 int cds_textops(const char *question, char *out, size_t cap, int *op);
 const char *cds_textops_name(int op);
+/* Extract an explicit length literal: 1 = word/string/text named, 2 = caller
+ * must exclude KB entities, 0 = decline. cap includes the terminating NUL. */
+int cds_textops_length_literal(const char *question, char *literal, size_t cap);
 
 /* Round 3 learned-span seam, called by round3.c. Offsets index the ORIGINAL request, never normalized.
  * cds_textops_tokens has a ~2.9 KiB frame; the c24 ARM9 stack gate covers it. */

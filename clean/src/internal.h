@@ -100,6 +100,10 @@ static inline int16_t cds_clip_q8(int32_t value, uint64_t *saturations) {
 void cds_matvec_reference(int32_t *out, const cds_matrix *matrix,
                          const int32_t *input, uint32_t group_size,
                          int16_t *scratch, uint64_t *saturations);
+int cds_matvec_self_check(void); /* Boot-only; failure permanently selects C. */
+void cds_matvec_c(int32_t *out, const cds_matrix *matrix,
+                  const int32_t *input, uint32_t group_size,
+                  int16_t *scratch, uint64_t *saturations);
 void cds_matvec_fast(int32_t *out, const cds_matrix *matrix,
                     const int32_t *input, uint32_t group_size,
                     int16_t *scratch, uint64_t *saturations);

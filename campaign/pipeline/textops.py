@@ -353,6 +353,52 @@ def parse_num(w):
     return NUMW.get(w, 0)
 
 
+def length_literal(q):
+    """(literal, typed) for explicit length phrasing; untyped needs a KB veto.
+
+    'How long is' requires word/string/text; bare nouns stay factual even
+    when absent from the KB. All spans preserve the original ASCII bytes.
+    """
+    if not q or len(q) > MAXQ or any(not (0x20 <= ord(c) <= 0x7e) for c in q):
+        return None
+    lower = q.lower()
+    a, e = len(q) - len(q.lstrip(' ')), len(q)
+    for head in ('length of ', 'the length of ', 'how long is '):
+        if lower.startswith(head, a):
+            a += len(head)
+            break
+    else:
+        return None
+    while a < e and lower[a] == ' ':
+        a += 1
+    if lower.startswith('the ', a):
+        a += 4
+    typed = False
+    for noun in ('word ', 'string ', 'text '):
+        if lower.startswith(noun, a):
+            a += len(noun)
+            typed = True
+            break
+    if head == 'how long is ' and not typed:
+        return None
+    while a < e and lower[a] == ' ':
+        a += 1
+    while e > a and lower[e - 1] in ' .!?':
+        e -= 1
+    if e <= a:
+        return None
+    if lower[a] in '\'"':
+        if e <= a + 2 or lower[e - 1] != lower[a]:
+            return None
+        a, e = a + 1, e - 1
+    else:
+        if any(not ('a' <= c <= 'z' or '0' <= c <= '9' or c in '_-' or (typed and c == ' ')) for c in lower[a:e]):
+            return None
+        if not typed and lower[a:e] in ('it', 'this', 'that', 'he', 'she', 'they', 'you'):
+            return None
+    return q[a:e], typed
+
+
 def textops(q):
     if not q or len(q) > MAXQ or any(not (0x20 <= ord(c) <= 0x7e) for c in q):
         return None

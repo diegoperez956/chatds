@@ -47,7 +47,7 @@ ACT = {
     "how_are_you": r"(?:how are you.*|how r u|hows it going|whats up|how do you feel|how have you been|whats going on)",
     "ack": r"(?:ok|okay|cool|nice|i see|got it|alright|sounds good|makes sense|right|sure|great|awesome|lol|haha|wow|hmm|oh ok|oh i see|understood|yep)",
     "identity": r"(?:who are you|what are you|what is your name|whats your name|who made you|who built you|are you (?:a )?(?:robot|real|human|ai|bot|chatgpt).*|tell me about yourself)",
-    "capabilities": r"(?:what can you do|what features.*|what can you help with|can you help me|help|what do you know|what can i ask you|how can you help|what are you good at|what do you do|what commands.*)",
+    "capabilities": r"(?:what can you do|what features.*|what can you help with|can you help me|help|what do you know|what can i ask you|how can you help|what are you good at|what do you do|what commands.*|how do you work|what do you help with|what can you help me with|what are your capabilities)",
     "repeat": r"(?:say that again|repeat that|what was that|come again|pardon|sorry what|huh|can you repeat.*|try again|thats wrong|that is wrong)",
 }
 UNSUP = r"\b(weather|news|stock|bitcoin|alarm|timer|remind me|email|text (?:my|him|her|mom)|call (?:my|him|her|mom)|play (?:some|a|the)|draw|picture|image of|photo|web\b|youtube|translate|poem|essay|what time|time is it|what is the time|what day|date today|president|trending|order a|book a|download|volume|wifi|calendar)\b"

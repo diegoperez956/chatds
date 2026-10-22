@@ -39,47 +39,57 @@ int tok_load(tok_t *t, const char *path)
 {
     FILE *f = fopen(path, "rb");
     long size = 0;
-    size_t off;
+    size_t off, packed = 0;
+    unsigned char header[8];
     int i;
 
     memset(t, 0, sizeof *t);
     if (!f)
         return -1;
-    if (!fseek(f, 0, SEEK_END) && (size = ftell(f)) >= 4 && !fseek(f, 0, SEEK_SET))
-        t->buf = malloc(size);
-    if (!t->buf || fread(t->buf, 1, size, f) != (size_t)size) {
-        fclose(f);
+    if (fseek(f, 0, SEEK_END) || (size = ftell(f)) < 4 ||
+        fseek(f, 0, SEEK_SET) || fread(header, 1, 4, f) != 4)
         goto bad;
-    }
-    fclose(f);
-
-    t->max_len = rd32(t->buf);
+    t->max_len = rd32(header);
     if (t->max_len < 1 || t->max_len > MAX_PIECE)
         goto bad;
+    /* Count/validate first, then stream into one exact resident allocation.
+     * Loading a whole-file staging buffer and shrinking later strands heap
+     * holes (or a moving realloc's old buffer) below the large KV allocation. */
     for (off = 4; off < (size_t)size; t->n++) {
-        size_t n;
-        if (size - off < 8 || t->n == 65535)
+        if (size - off < 8 || t->n == 65535 || fread(header, 1, 8, f) != 8)
             goto bad;
-        n = rd32(t->buf + off + 4);
-        if (n > (size_t)t->max_len || size - off - 8 < n)
+        size_t n = rd32(header + 4);
+        if (n > (size_t)t->max_len || size - off - 8 < n || fseek(f, (long)n, SEEK_CUR))
             goto bad;
         off += 8 + n;
+        packed += n;
     }
-    if (t->n < FIRST_NORMAL)
+    if (t->n < FIRST_NORMAL || fseek(f, 4, SEEK_SET))
         goto bad;
-
-    t->piece = malloc(t->n * sizeof *t->piece);
-    t->len = malloc(t->n * sizeof *t->len);
-    t->score = malloc(t->n * sizeof *t->score);
-    t->sorted = malloc(t->n * sizeof *t->sorted);
-    if (!t->piece || !t->len || !t->score || !t->sorted)
-        goto bad;
-    for (off = 4, i = 0; i < t->n; i++) {
-        memcpy(&t->score[i], t->buf + off, 4); /* unaligned on purpose */
-        t->len[i] = rd32(t->buf + off + 4);
-        t->piece[i] = t->buf + off + 8;
-        off += 8 + t->len[i];
+    size_t align = sizeof(void *);
+    size_t tables = (packed + align - 1) & ~(align - 1);
+    size_t table_bytes = (size_t)t->n * (sizeof *t->piece + sizeof *t->score +
+                                      sizeof *t->sorted + sizeof *t->len);
+    t->buf = malloc(tables + table_bytes);
+    if (!t->buf) goto bad;
+    t->piece = (const unsigned char **)(t->buf + tables);
+    t->score = (float *)(t->piece + t->n);
+    t->sorted = (unsigned short *)(t->score + t->n);
+    t->len = (unsigned char *)(t->sorted + t->n);
+    for (off = 0, i = 0; i < t->n; i++) {
+        if (fread(header, 1, 8, f) != 8) goto bad;
+        size_t n = rd32(header + 4);
+        if (n > (size_t)t->max_len || n > packed - off ||
+            fread(t->buf + off, 1, n, f) != n) goto bad;
+        memcpy(&t->score[i], header, 4);
+        t->len[i] = n;
+        t->piece[i] = t->buf + off;
+        off += n;
     }
+    if (off != packed || fgetc(f) != EOF || ferror(f)) goto bad;
+    int close_bad = fclose(f);
+    f = NULL;
+    if (close_bad) goto bad;
     /* We rely on byte fallback living at 3..258. */
     for (i = 0; i < 256; i++) {
         char want[8];
@@ -95,17 +105,14 @@ int tok_load(tok_t *t, const char *path)
     qsort(t->sorted, t->n_sorted, sizeof *t->sorted, cmp_ids);
     return 0;
 bad:
+    if (f) fclose(f);
     tok_free(t);
     return -1;
 }
 
 void tok_free(tok_t *t)
 {
-    free(t->buf);
-    free(t->piece);
-    free(t->len);
-    free(t->score);
-    free(t->sorted);
+    free(t->buf); /* owns packed payload and all typed tables */
     memset(t, 0, sizeof *t);
 }
 

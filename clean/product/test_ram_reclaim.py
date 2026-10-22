@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
     actual = [tuple(map(int, line.split())) for line in run([executable]).stdout.splitlines()]
     assert actual == [(a | (op << 13), arg if op == 1 else b)
                       for a, b, arg, op in expected['nodes']]
-    assert len(actual) == 4060
+    assert len(actual) == 4151
     # Regex oracle exercises the packed decoder on authored/random ASCII,
     # including boundary assertions and cyclic split closures.
     rng = random.Random(240608)

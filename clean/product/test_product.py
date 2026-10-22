@@ -112,7 +112,7 @@ def test_round3_assets_fail_closed(executable, tmp_path, head, failure):
     # Load the damaged head on demand. Previous product rejected these same
     # files at startup; the contract stays FAIL + no generated answer/IDs,
     # never a silently substituted c14/transformer answer.
-    q = 'u good?' if head == 'act' else "put the words of 'castle bridge' in reverse order"
+    q = 'u good?' if head == 'act' else 'sort these words zipper harbor rabbit river'
     result, out = invoke(executable, tmp_path, f'steps=2\ninstruct=1\nprompt={q}\n', learned_directory=models)
     assert result.returncode != 0
     assert (out / 'out.txt').read_text().endswith('status=FAIL\n')

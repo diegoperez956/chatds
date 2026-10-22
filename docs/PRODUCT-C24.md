@@ -1,5 +1,8 @@
 # product condition 24 (c24)
 
+> superseded by [v0.2.0](RELEASE-v0.2.0.md), which builds on c24. "current"
+> below means current for c24.
+
 c24 is the assistant-mode product: [c14](PRODUCT-C14.md) plus two learned
 fallbacks, a pocket math notebook and the RAM reclaim that lets both fit.
 **the current ROM, sha256

@@ -474,6 +474,31 @@ def _head_form(T):
     return "%s%s%s" % ((b, op, a) if w == "subtract" else (a, op, b))
 
 
+def calc_prose_answer(q, apply_calc, edges_only=True):
+    """Keep every math token; deterministic parsing permits prose only at edges."""
+    try:
+        tokens = calc_lex(q)
+    except Decline:
+        return None
+    if any(k == 'W' and v in CODEW for k, v in tokens):
+        return None
+    math, prose = [], False
+    for k, v in tokens:
+        if k == 'W' and (v not in CALC_KNOWN or v in CALC_FILL or v in CALC_TAIL):
+            if math:
+                prose = True
+            continue
+        if edges_only and prose:
+            return None
+        math.append(v)
+    return calc_answer(' '.join(math), apply_calc)
+
+
+def calc_grounded(q, answer, apply_calc):
+    """Validate decoded math, not request prose; never drop a numeric/operator token."""
+    return calc_prose_answer(q, apply_calc, edges_only=False) == answer
+
+
 def calc_parse(q):
     """-> expression string for calc() or None.  Full-match only: any unknown word, symbol or ambiguity declines."""
     try:

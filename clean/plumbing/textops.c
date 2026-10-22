@@ -683,6 +683,63 @@ int cds_textops_literal(int op, const char *literal, int repeat, const char *x, 
     return n > 0 && n <= MAXOUT ? n : 0;
 }
 
+/* Explicit length requests only. Untyped literals require a KB identity veto
+ * in dispatch; typed word/string/text requests are unambiguous text intent. */
+int cds_textops_length_literal(const char *question, char *literal, size_t cap) {
+    if (!question || !literal) return 0;
+    size_t n = strlen(question);
+    if (!n || n > MAXQ) return 0;
+    char lower[MAXQ + 1];
+    for (size_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)question[i];
+        if (c < 32 || c > 126) return 0;
+        lower[i] = c >= 'A' && c <= 'Z' ? (char)(c + 32) : (char)c;
+    }
+    lower[n] = 0;
+    size_t a = 0, e = n;
+    while (lower[a] == ' ') a++;
+    static const char *const heads[] = {"length of ", "the length of ", "how long is "};
+    int matched = 0, how_long = 0;
+    for (unsigned i = 0; i < sizeof heads / sizeof *heads; i++) {
+        size_t k = strlen(heads[i]);
+        if (!strncmp(lower + a, heads[i], k)) { a += k; matched = 1; how_long = i == 2; break; }
+    }
+    if (!matched) return 0;
+    while (lower[a] == ' ') a++;
+    if (!strncmp(lower + a, "the ", 4)) a += 4;
+    int typed = 0;
+    static const char *const nouns[] = {"word ", "string ", "text "};
+    for (unsigned i = 0; i < sizeof nouns / sizeof *nouns; i++) {
+        size_t k = strlen(nouns[i]);
+        if (!strncmp(lower + a, nouns[i], k)) { a += k; typed = 1; break; }
+    }
+    /* Bare duration questions remain factual, including fuzzy/unknown nouns. */
+    if (how_long && !typed) return 0;
+    while (lower[a] == ' ') a++;
+    while (e > a && strchr(" .!?", lower[e - 1])) e--;
+    if (e <= a) return 0;
+    int quoted = lower[a] == '\'' || lower[a] == '"';
+    if (quoted) {
+        if (e <= a + 2 || lower[e - 1] != lower[a]) return 0;
+        a++; e--;
+    } else {
+        /* Bare unknown prose/code is not a literal. Keep this seam single-word
+         * unless the request explicitly names text, a word or a string. */
+        for (size_t i = a; i < e; i++) {
+            int c = lower[i];
+            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || (typed && c == ' '))) return 0;
+        }
+        if (!typed) {
+            static const char *const pronouns[] = {"it", "this", "that", "he", "she", "they", "you"};
+            for (unsigned i = 0; i < sizeof pronouns / sizeof *pronouns; i++)
+                if (e - a == strlen(pronouns[i]) && !memcmp(lower + a, pronouns[i], e - a)) return 0;
+        }
+    }
+    if (e - a >= cap) return 0;
+    memcpy(literal, question + a, e - a); literal[e - a] = 0;
+    return typed ? 1 : 2;
+}
+
 int cds_textops(const char *question, char *out, size_t cap, int *op) {
     static char b[MAXQ + 1]; /* static: keeps the DTCM stack small; not reentrant (the DS is single threaded) */
     static tok T[TOKCAP];

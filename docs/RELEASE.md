@@ -51,7 +51,12 @@ sha256sum build/release-kit/chatds.nds
 
 The ROM sha256 must match the `chatds.nds` row in
 [PRODUCT-C24.md](PRODUCT-C24.md#build-and-provenance); check the
-staged assets against the same table.
+staged assets against the same table. For v0.2.0, package with
+`--asset-dir` and the release `--kb4`, and match
+[RELEASE-v0.2.0.md](RELEASE-v0.2.0.md#files) instead; its
+[validation](RELEASE-v0.2.0.md#validation) section records the gates run on
+that ROM. A new model/tokenizer pair also needs a
+[weights release review](WEIGHTS_RELEASE_REVIEW.md) entry.
 
 The dev-set parity, melonDS screen and RAM runs use a private validation
 harness and eval sets that are not shipped here, as PRODUCT-C24.md says.
